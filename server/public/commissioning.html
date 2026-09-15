@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Commissioning &middot; VERITEK IoT</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --border: #dfe3e8;
+    --ink: #1b1f24;
+    --muted: #6b7280;
+    --accent: #1d4ed8;
+    --ok: #15803d;
+    --warn: #b45309;
+    --bad: #b91c1c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .spacer { flex: 1; }
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+  section { margin-bottom: 24px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .kv { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: 4px 14px; font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  td.num { font-family: var(--mono); text-align: right; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid; }
+  .pill.ok { color: var(--ok); border-color: #bbf7d0; background: #f0fdf4; }
+  .pill.warn { color: var(--warn); border-color: #fde68a; background: #fffbeb; }
+  .pill.bad { color: var(--bad); border-color: #fecaca; background: #fef2f2; }
+  .pill.mute { color: var(--muted); border-color: var(--border); background: #f9fafb; }
+  pre { font-family: var(--mono); font-size: 12px; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 320px; margin: 0; }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  input, textarea { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; background: var(--surface); color: var(--ink); }
+  textarea { font-family: var(--mono); font-size: 12px; min-height: 120px; }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .gateway { margin-bottom: 16px; }
+  .gateway > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; list-style: none; display: flex; gap: 10px; align-items: center; }
+  .gateway > summary::-webkit-details-marker { display: none; }
+  .gateway[open] > summary { border-bottom: 1px solid var(--border); }
+  .sub { padding: 14px 16px; }
+  .banner { border-left: 3px solid var(--warn); background: #fffbeb; padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 13px; }
+  .stack { display: grid; gap: 12px; }
+  @media (max-width: 640px) { main { padding: 12px; } header { padding: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>VERITEK IoT &mdash; Commissioning</h1>
+  <span id="conn" class="pill mute">connecting&hellip;</span>
+  <span class="spacer"></span>
+  <span class="muted" id="updated"></span>
+  <button id="refresh">Refresh</button>
+</header>
+
+<main>
+  <div id="login" class="card" style="display:none; max-width: 420px;">
+    <h2>Sign in</h2>
+    <div class="stack">
+      <input id="email" type="email" placeholder="admin@veritek.com" autocomplete="username" />
+      <input id="password" type="password" placeholder="password" autocomplete="current-password" />
+      <div class="row"><button class="primary" id="signin">Sign in</button><span id="loginError" class="muted"></span></div>
+    </div>
+  </div>
+
+  <div id="app" style="display:none;">
+    <section>
+      <h2>Transport</h2>
+      <div class="grid" id="transport"></div>
+    </section>
+
+    <section>
+      <h2>Still unknown until the hardware connects</h2>
+      <div class="card" id="openQuestions"></div>
+    </section>
+
+    <section>
+      <h2>Observed MQTT topics</h2>
+      <div class="card"><table id="topics"><thead><tr><th>Topic</th><th>Packets</th><th>Gateway</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section>
+      <h2>Gateways</h2>
+      <div id="gateways"></div>
+    </section>
+
+    <section>
+      <h2>Latest raw packets</h2>
+      <div class="card">
+        <table id="raw"><thead><tr><th>Received</th><th>Topic</th><th>Gateway</th><th>Status</th><th>Bytes</th><th></th></tr></thead><tbody></tbody></table>
+        <pre id="rawDetail" style="margin-top:12px; display:none;"></pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>Test a payload against the current mapping</h2>
+      <div class="card stack">
+        <p class="muted" style="margin:0">
+          Paste a captured packet to see exactly what the adapter extracts. Nothing is stored.
+          This is the fastest way to turn the first real packet into a working profile.
+        </p>
+        <div class="row">
+          <input id="testTopic" placeholder="topic (optional), e.g. technode/GW001/telemetry" style="flex:2; min-width:240px" />
+          <input id="testGateway" placeholder="gateway uid (optional)" style="flex:1; min-width:160px" />
+        </div>
+        <textarea id="testPayload" spellcheck="false">{
+  "gateway_id": "TEST-GW-001",
+  "slave_id": 1,
+  "timestamp": "2026-09-14T12:30:00+05:30",
+  "registers": { "voltage_l1": 231.4, "current_l1": 10.1, "active_power_kw": 6.72 }
+}</textarea>
+        <div class="row">
+          <button class="primary" id="testRun">Parse</button>
+          <button id="suggest">Draft a profile from observed traffic</button>
+        </div>
+        <pre id="testResult" style="display:none;"></pre>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+/**
+ * Commissioning screen.
+ *
+ * Deliberately a single static file with no build step: it has to work on a
+ * laptop on a factory floor, against whatever backend is reachable, on the day
+ * the hardware arrives. It calls the same APIs the React dashboard will.
+ */
+const state = { token: localStorage.getItem('veritek.token') || '', data: null };
+
+const $ = (id) => document.getElementById(id);
+const esc = (value) =>
+  String(value ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
+const ago = (iso) => {
+  if (!iso) return 'never';
+  const seconds = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  if (seconds < 60) return seconds + 's ago';
+  if (seconds < 3600) return Math.round(seconds / 60) + 'm ago';
+  return Math.round(seconds / 3600) + 'h ago';
+};
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (response.status === 401) {
+    showLogin();
+    throw new Error('unauthorised');
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error?.message || ('HTTP ' + response.status));
+  return body;
+}
+
+function showLogin() {
+  $('login').style.display = '';
+  $('app').style.display = 'none';
+}
+
+$('signin').onclick = async () => {
+  $('loginError').textContent = '';
+  try {
+    const body = await api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: $('email').value, password: $('password').value }),
+    });
+    state.token = body.token;
+    localStorage.setItem('veritek.token', body.token);
+    $('login').style.display = 'none';
+    await load();
+  } catch (error) {
+    $('loginError').textContent = error.message;
+  }
+};
+
+function statusPill(status) {
+  const cls = status === 'ONLINE' ? 'ok' : status === 'DEGRADED' ? 'warn' : status === 'OFFLINE' ? 'bad' : 'mute';
+  return '<span class="pill ' + cls + '">' + esc(status) + '</span>';
+}
+
+function processingPill(status) {
+  const cls = status === 'OK' ? 'ok' : status === 'PARTIAL' || status === 'DUPLICATE' ? 'warn' : status === 'PENDING' ? 'mute' : 'bad';
+  return '<span class="pill ' + cls + '">' + esc(status) + '</span>';
+}
+
+function renderTransport(data) {
+  const mqtt = data.mqtt || {};
+  const broker = mqtt.embeddedBroker || {};
+  const consumer = mqtt.consumer || {};
+  const credentials = mqtt.developmentCredentials;
+
+  $('transport').innerHTML = [
+    card('Broker connection', {
+      state: mqtt.state,
+      broker: mqtt.broker,
+      'client id': mqtt.clientId,
+      reconnects: mqtt.reconnects,
+      'last error': mqtt.lastError || 'none',
+    }),
+    card('Subscriptions', {
+      subscribed: (mqtt.subscribeTopics || []).join(', '),
+      'messages seen': consumer.messages,
+      errors: consumer.errors,
+    }),
+    card('Embedded broker', {
+      running: String(Boolean(broker.running)),
+      port: broker.port ?? '—',
+      clients: broker.clients ?? 0,
+      anonymous: String(Boolean(broker.anonymous)),
+      ...(credentials ? { 'dev username': credentials.username, 'dev password': credentials.password } : {}),
+    }),
+    card('Topic templates', {
+      command: mqtt.commandTopicTemplate,
+      status: mqtt.statusTopicTemplate,
+    }),
+  ].join('');
+}
+
+function card(title, pairs) {
+  const rows = Object.entries(pairs)
+    .map(([key, value]) => '<dt>' + esc(key) + '</dt><dd>' + esc(value) + '</dd>')
+    .join('');
+  return '<div class="card"><h2>' + esc(title) + '</h2><dl class="kv">' + rows + '</dl></div>';
+}
+
+function renderOpenQuestions(items) {
+  $('openQuestions').innerHTML =
+    '<div class="stack">' +
+    (items || [])
+      .map(
+        (item) =>
+          '<div class="banner"><strong>' + esc(item.question) + '</strong><br>' +
+          '<span class="muted">Resolved by: ' + esc(item.resolvedBy) + '</span><br>' +
+          '<span class="muted">Blocks: ' + esc(item.blocks) + '</span></div>',
+      )
+      .join('') +
+    '</div>';
+}
+
+function renderTopics(topics) {
+  const body = (topics || [])
+    .map(
+      (topic) =>
+        '<tr><td><code>' + esc(topic.topic) + '</code></td><td class="num">' + esc(topic.count) +
+        '</td><td>' + esc(topic.gatewayUid || '—') + '</td><td>' + esc(ago(topic.lastSeen)) + '</td></tr>',
+    )
+    .join('');
+  $('topics').querySelector('tbody').innerHTML =
+    body || '<tr><td colspan="4" class="muted">No packets yet. Point the gateway at this broker and wait.</td></tr>';
+}
+
+function renderGateways(rows) {
+  $('gateways').innerHTML = (rows || [])
+    .map((row) => {
+      const gateway = row.gateway;
+      const meters = (row.meters || [])
+        .map((meter) => {
+          const readings = (meter.latestReadings || [])
+            .map(
+              (reading) =>
+                '<tr><td>' + esc(reading.metric) + '</td><td class="num">' + esc(reading.value) +
+                '</td><td>' + esc(reading.unit || '') + '</td><td>' +
+                (reading.quality === 'GOOD' ? '' : '<span class="pill warn">' + esc(reading.quality) + '</span>') +
+                '</td><td class="muted">' + esc(ago(reading.time)) + '</td></tr>',
+            )
+            .join('');
+
+          return (
+            '<div class="card" style="margin-bottom:10px">' +
+            '<div class="row"><strong>' + esc(meter.meterName) + '</strong>' +
+            '<span class="pill mute">slave ' + esc(meter.slaveId ?? '—') + '</span>' +
+            '<span class="pill ' + (meter.status === 'ONLINE' ? 'ok' : 'mute') + '">' + esc(meter.status) + '</span>' +
+            '<span class="muted">last data ' + esc(ago(meter.lastDataAt)) + '</span></div>' +
+            '<dl class="kv" style="margin-top:8px">' +
+            '<dt>model</dt><dd>' + esc(meter.model ? meter.model.manufacturer + ' ' + meter.model.model : 'not assigned') + '</dd>' +
+            '<dt>serial line</dt><dd>' +
+            esc([meter.baudRate || '?', meter.parity || '?', meter.stopBits || '?'].join(' / ')) +
+            ' <span class="muted">(baud / parity / stop bits)</span></dd>' +
+            '<dt>register map</dt><dd>' + esc(meter.registerCount) + ' entries' +
+            (meter.registerCount === 0 ? ' <span class="pill warn">awaiting meter register table</span>' : '') + '</dd>' +
+            '</dl>' +
+            (readings
+              ? '<table style="margin-top:8px"><thead><tr><th>Metric</th><th>Value</th><th>Unit</th><th>Quality</th><th>Age</th></tr></thead><tbody>' + readings + '</tbody></table>'
+              : '<p class="muted" style="margin:8px 0 0">No decoded readings yet.</p>') +
+            '</div>'
+          );
+        })
+        .join('');
+
+      const unmapped = (row.unmappedFields || [])
+        .map(
+          (field) =>
+            '<tr><td><code>' + esc(field.jsonPath) + '</code></td><td>' + esc(field.valueType) +
+            '</td><td class="num">' + esc(field.sampleValue) + '</td><td>' +
+            (field.suggestedMetric ? '<span class="pill warn">looks like ' + esc(field.suggestedMetric) + '</span>' : '<span class="muted">no suggestion</span>') +
+            '</td><td class="num">' + esc(field.occurrences) + '</td></tr>',
+        )
+        .join('');
+
+      return (
+        '<details class="card gateway" open>' +
+        '<summary>' + esc(gateway.name) + ' <code>' + esc(gateway.gatewayUid) + '</code> ' +
+        statusPill(gateway.status) +
+        '<span class="muted" style="font-weight:400">last seen ' + esc(ago(gateway.lastSeenAt)) + '</span></summary>' +
+        '<div class="sub">' +
+        '<div class="grid">' +
+        card('Identity', {
+          site: row.site ? row.site.name + ' (' + row.site.timezone + ')' : 'not assigned',
+          'hardware model': gateway.hardwareModel || '—',
+          firmware: gateway.firmwareVersion || '—',
+          imei: gateway.imei || '—',
+          sim: gateway.simNumber || '—',
+          'observed topic': gateway.observedTopic || 'none yet',
+          'topic namespace': gateway.topicNamespace || '—',
+        }) +
+        card('Ingest counters', {
+          packets: row.health ? row.health.packetsTotal : 0,
+          ok: row.health ? row.health.packetsOk : 0,
+          malformed: row.health ? row.health.packetsMalformed : 0,
+          duplicates: row.health ? row.health.packetsDuplicate : 0,
+          'unknown schema': row.health ? row.health.packetsUnknownSchema : 0,
+          failures: row.health ? row.health.processingFailures : 0,
+          buffered: row.health ? row.health.bufferedPackets : 0,
+          'lag (last / max)':
+            row.health ? (round(row.health.lastLagSeconds) + ' / ' + round(row.health.maxLagSeconds) + ' s') : '—',
+        }) +
+        '</div>' +
+        '<h2 style="margin-top:16px">Attached meters (' + (row.meters || []).length + ')</h2>' +
+        (meters || '<p class="muted">No meters registered on this gateway yet.</p>') +
+        '<h2 style="margin-top:16px">Payload fields not mapped to a metric</h2>' +
+        (unmapped
+          ? '<table><thead><tr><th>JSON path</th><th>Type</th><th>Sample</th><th>Suggestion</th><th>Seen</th></tr></thead><tbody>' + unmapped + '</tbody></table>'
+          : '<p class="muted">Every observed field is mapped.</p>') +
+        '</div></details>'
+      );
+    })
+    .join('') || '<div class="card muted">No gateways have reported yet.</div>';
+}
+
+function round(value) {
+  return value === null || value === undefined ? '—' : Math.round(value * 10) / 10;
+}
+
+function renderRaw(messages) {
+  const body = (messages || [])
+    .map(
+      (message) =>
+        '<tr><td>' + esc(fmt(message.receivedAtServer)) + '</td>' +
+        '<td><code>' + esc(message.topic || message.transport) + '</code></td>' +
+        '<td>' + esc(message.gatewayUid || '—') + '</td>' +
+        '<td>' + processingPill(message.processingStatus) +
+        (message.processingError ? '<br><span class="muted">' + esc(message.processingError) + '</span>' : '') + '</td>' +
+        '<td class="num">' + esc(message.byteSize) + '</td>' +
+        '<td><button data-raw="' + esc(message.id) + '">View</button></td></tr>',
+    )
+    .join('');
+
+  const tbody = $('raw').querySelector('tbody');
+  tbody.innerHTML = body || '<tr><td colspan="6" class="muted">Nothing received yet.</td></tr>';
+  tbody.querySelectorAll('button[data-raw]').forEach((button) => {
+    button.onclick = async () => {
+      const body = await api('/api/commissioning/raw/' + button.dataset.raw);
+      const detail = $('rawDetail');
+      detail.style.display = '';
+      // The stored bytes, exactly as received - the point of the raw log.
+      detail.textContent = JSON.stringify(body.message, null, 2);
+      detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+  });
+}
+
+$('testRun').onclick = async () => {
+  const result = $('testResult');
+  result.style.display = '';
+  result.textContent = 'parsing…';
+  try {
+    const body = await api('/api/commissioning/test-parse', {
+      method: 'POST',
+      body: JSON.stringify({
+        payload: $('testPayload').value,
+        topic: $('testTopic').value || null,
+        gatewayUid: $('testGateway').value || null,
+      }),
+    });
+    result.textContent = JSON.stringify(body, null, 2);
+  } catch (error) {
+    result.textContent = 'Error: ' + error.message;
+  }
+};
+
+$('suggest').onclick = async () => {
+  const uid = $('testGateway').value || (state.data?.gateways?.[0]?.gateway?.gatewayUid ?? '');
+  const result = $('testResult');
+  result.style.display = '';
+  if (!uid) {
+    result.textContent = 'Enter a gateway uid, or wait for a gateway to publish first.';
+    return;
+  }
+  try {
+    const body = await api('/api/commissioning/suggest-profile?gatewayUid=' + encodeURIComponent(uid));
+    result.textContent = JSON.stringify(body, null, 2);
+  } catch (error) {
+    result.textContent = 'Error: ' + error.message;
+  }
+};
+
+async function load() {
+  try {
+    const data = await api('/api/commissioning/overview');
+    state.data = data;
+    $('app').style.display = '';
+    $('login').style.display = 'none';
+    $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+
+    renderTransport(data);
+    renderOpenQuestions(data.openQuestions);
+    renderTopics(data.observedTopics);
+    renderGateways(data.gateways);
+    renderRaw(data.recentMessages);
+
+    const connected = data.mqtt?.state === 'connected';
+    $('conn').className = 'pill ' + (connected ? 'ok' : 'bad');
+    $('conn').textContent = connected ? 'MQTT connected' : 'MQTT ' + (data.mqtt?.state ?? 'unknown');
+  } catch (error) {
+    if (error.message !== 'unauthorised') {
+      $('updated').textContent = 'error: ' + error.message;
+    }
+  }
+}
+
+$('refresh').onclick = load;
+
+/* Live updates: the same SSE stream the dashboard uses. A packet arriving
+   refreshes the page, so commissioning is watched rather than polled. */
+function connectStream() {
+  if (!state.token) return;
+  const source = new EventSource('/api/stream?access_token=' + encodeURIComponent(state.token));
+  let pending = null;
+  const bump = () => {
+    clearTimeout(pending);
+    pending = setTimeout(load, 700);
+  };
+  source.addEventListener('telemetry', bump);
+  source.addEventListener('raw.stored', bump);
+  source.addEventListener('raw.unknownSchema', bump);
+  source.addEventListener('gateway.status', bump);
+  source.onerror = () => {
+    source.close();
+    setTimeout(connectStream, 5000);
+  };
+}
+
+if (state.token) {
+  load().then(connectStream);
+} else {
+  showLogin();
+}
+setInterval(load, 30000);
+</script>
+</body>
+</html>

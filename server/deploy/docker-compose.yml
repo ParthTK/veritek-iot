@@ -1,0 +1,49 @@
+# Production-shaped local stack: PostgreSQL + TimescaleDB and Mosquitto.
+#
+# The backend runs fine without any of this (embedded SQLite + embedded MQTT
+# broker), which is how it is verified before hardware arrives. Bring this up
+# when you want the real storage and broker:
+#
+#   docker compose -f deploy/docker-compose.yml up -d
+#   DATABASE_URL=postgres://veritek:veritek@localhost:5432/veritek_iot \
+#   EMBEDDED_BROKER_ENABLED=false npm run dev
+
+name: veritek-iot
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: veritek
+      # Development credential. Use a secret manager in production.
+      POSTGRES_PASSWORD: veritek
+      POSTGRES_DB: veritek_iot
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veritek -d veritek_iot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # plain MQTT - LAN / commissioning only
+      - "8883:8883"   # MQTT over TLS - the production listener
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/aclfile:/mosquitto/config/aclfile:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-logs:/mosquitto/log
+
+volumes:
+  timescale-data:
+  mosquitto-data:
+  mosquitto-logs:

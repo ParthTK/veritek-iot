@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-gray-50 font-sans text-theme-sm font-normal text-gray-800 antialiased;
+  }
+
+  /* Visible keyboard focus everywhere, without a focus ring on mouse clicks */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+  }
+
+  th {
+    @apply font-medium;
+  }
+}
+
+@layer components {
+  /* Sidebar menu primitives ported from tavvlo-company-dashboard */
+  .menu-item {
+    @apply relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-theme-sm font-medium transition-colors;
+  }
+  .menu-item-active {
+    @apply bg-brand-50 text-brand-700;
+  }
+  .menu-item-inactive {
+    @apply text-gray-700 hover:bg-gray-100;
+  }
+  .menu-item-icon-active {
+    @apply text-brand-600;
+  }
+  .menu-item-icon-inactive {
+    @apply text-gray-500 group-hover:text-gray-700;
+  }
+
+  .card {
+    @apply rounded-lg border border-gray-200 bg-white;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-theme-xs font-medium text-gray-700;
+  }
+
+  .field-input {
+    @apply block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-theme-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400;
+  }
+
+  .field-error {
+    @apply border-error-400 focus:border-error-500 focus:ring-error-500;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    @apply h-1.5 w-1.5;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-gray-300;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+}
+
+/* Recharts: fine grid lines and small muted axis text, matching the reference */
+.recharts-cartesian-grid line {
+  stroke: #eef0f4;
+}
+.recharts-text {
+  font-size: 11px;
+  fill: #667085;
+}
+.recharts-surface:focus {
+  outline: none;
+}

@@ -1,0 +1,31 @@
+# Mosquitto ACL - copy to `aclfile` and extend per gateway.
+#
+# Principle: a gateway may publish ONLY under its own namespace and subscribe
+# ONLY to its own command topic. It can neither read another site's telemetry
+# nor forge readings for another device.
+
+# --- backend ---------------------------------------------------------------
+# The only identity allowed across the whole namespace.
+user veritek-backend
+topic readwrite technode/#
+
+# --- one block per gateway -------------------------------------------------
+# Username = the gateway uid; password = the token from
+#   POST /api/admin/gateways/:id/token
+# (stored only as a scrypt hash on our side).
+#
+# Copy this block for each unit, replacing GW-UID.
+
+# user GW-UID
+# topic write technode/GW-UID/telemetry
+# topic write technode/GW-UID/status
+# topic read  technode/GW-UID/command
+# topic write technode/GW-UID/command/response
+
+# Example, once the real device id is known:
+# user TN-8623600786286128
+# topic write technode/TN-8623600786286128/#
+# topic read  technode/TN-8623600786286128/command
+
+# No `pattern` or `topic` rule outside a user block: an unmatched client gets
+# nothing, which is the behaviour we want.

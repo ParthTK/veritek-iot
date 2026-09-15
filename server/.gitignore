@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.env
+.env.local
+*.log
+deploy/mosquitto/passwd
+deploy/mosquitto/aclfile
+deploy/mosquitto/certs/*
+!deploy/mosquitto/certs/.gitkeep

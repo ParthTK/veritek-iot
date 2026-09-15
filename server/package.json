@@ -1,0 +1,40 @@
+{
+  "name": "veritek-iot-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vendor-neutral IoT ingestion, normalisation and telemetry backend for energy meters behind Modbus RTU gateways (first target: Technode).",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
+    "simulator": "tsx --env-file-if-exists=.env scripts/simulator.ts",
+    "sniffer": "tsx --env-file-if-exists=.env scripts/mqtt-sniffer.ts",
+    "broker": "tsx --env-file-if-exists=.env scripts/broker.ts",
+    "verify:e2e": "tsx --env-file-if-exists=.env scripts/verify-e2e.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "aedes": "^1.1.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mqtt": "^5.15.2",
+    "pg": "^8.23.0",
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}
