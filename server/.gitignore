@@ -17,3 +17,10 @@ deploy/mosquitto/passwd
 deploy/mosquitto/aclfile
 deploy/mosquitto/certs/*
 !deploy/mosquitto/certs/.gitkeep
+
+# Generated on the host at deploy time.
+deploy/letsencrypt/
+deploy/certbot-webroot/*
+!deploy/certbot-webroot/.gitkeep
+deploy/dashboard/*
+!deploy/dashboard/.gitkeep

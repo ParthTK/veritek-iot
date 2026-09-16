@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+.env
+.env.*
+!.env.example
+*.log
+deploy/env/*.env
+deploy/certs
+deploy/letsencrypt
+deploy/emqx/etc/emqx.conf
+docs/test-results

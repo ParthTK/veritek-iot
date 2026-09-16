@@ -1,12 +1,18 @@
-# Production stack: EMQX + TimescaleDB + backend + Prometheus + Grafana.
+# Production/staging stack: EMQX + TimescaleDB + backend + nginx + Prometheus +
+# Grafana + node-exporter.
 #
-# Everything here is reproducible from this repository (spec section 23). No
-# step of the deployment is a command someone once ran on a VM by hand.
+# Reproducible from this repository (spec section 23). Deployment:
 #
-#   cp deploy/env/production.env.example deploy/env/production.env   # then edit
-#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/env/production.env up -d
+#   ./deploy/scripts/gcp-bootstrap.sh deploy/env/staging.env
 #
-# Secrets live in the env file, which is gitignored. Nothing secret is in here.
+# which renders the broker config, issues the certificate, installs the renewal
+# and backup timers, and starts this stack. Secrets live in the env file, which
+# is gitignored. Nothing secret is in this file.
+#
+# Certificate renewal and database backups run as host systemd timers rather
+# than containers: both need to reload other containers or write to Cloud
+# Storage, and giving a container the Docker socket to do that would hand it
+# root on the host.
 
 name: veritek-iot
 
@@ -31,24 +37,21 @@ services:
     environment:
       EMQX_NODE__NAME: "emqx@127.0.0.1"
       EMQX_NODE__COOKIE: "${EMQX_NODE_COOKIE:?set EMQX_NODE_COOKIE}"
-      # Authentication and authorization are declared in emqx.conf, rendered
-      # from emqx.conf.template by deploy/scripts/render-emqx-config.sh so the
-      # webhook secret never has to sit in git or in this file.
-      EMQX_PROMETHEUS__ENABLE: "true"
       EMQX_DASHBOARD__DEFAULT_PASSWORD: "${EMQX_DASHBOARD_PASSWORD:?set EMQX_DASHBOARD_PASSWORD}"
     volumes:
+      # Rendered from emqx.conf.template by render-emqx-config.sh; carries the
+      # webhook secret, so it is gitignored.
       - ./emqx/etc/emqx.conf:/opt/emqx/etc/emqx.conf:ro
       - ./emqx/etc/acl.conf:/opt/emqx/etc/acl.conf:ro
-      - emqx-data:/opt/emqx/data
-      - emqx-log:/opt/emqx/log
       - ./certs:/opt/emqx/etc/certs:ro
+      - emqx-data:/opt/emqx/data
     ports:
       # Public: TLS listener for gateways.
       - "8883:8883"
-      # Public ONLY during a commissioning window - see deploy/scripts/firewall.sh.
+      # 127.0.0.1 keeps plaintext off the internet. Set MQTT_PLAIN_BIND=0.0.0.0
+      # only for a commissioning window (spec section 3).
       - "${MQTT_PLAIN_BIND:-127.0.0.1}:1883:1883"
-      # Dashboard and Prometheus scrape stay on loopback; reach them over the
-      # VPN or an SSH tunnel (spec section 16).
+      # Dashboard: loopback only. Reach it over an SSH tunnel (section 16).
       - "127.0.0.1:18083:18083"
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
@@ -71,9 +74,8 @@ services:
       POSTGRES_DB: "${POSTGRES_DB:-veritek_iot}"
     volumes:
       - timescale-data:/var/lib/postgresql/data
-      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
-    # NOT published. The database is reachable only on the internal compose
-    # network - a physical gateway must never be able to see it (section 17).
+    # NOT published. Reachable only on the compose network; a gateway can never
+    # see it (spec section 17).
     expose:
       - "5432"
     healthcheck:
@@ -87,6 +89,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    image: veritek-iot/backend:latest
     <<: [*restart, *logging]
     container_name: veritek-backend
     environment:
@@ -94,9 +97,11 @@ services:
       DEPLOY_ENVIRONMENT: "${DEPLOY_ENVIRONMENT:-production}"
       PORT: "4000"
       LOG_PRETTY: "false"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      PUBLIC_BASE_URL: "https://${API_PUBLIC_HOST:?set API_PUBLIC_HOST}"
       DATABASE_URL: "postgres://${POSTGRES_USER:-veritek}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-veritek_iot}"
-      # The backend reaches the broker inside the compose network, so this leg
-      # needs no TLS; the public 8883 listener is where TLS is enforced.
+      # Broker leg stays inside the compose network; TLS is enforced on the
+      # public 8883 listener.
       MQTT_HOST: emqx
       MQTT_PORT: "1883"
       MQTT_TLS: "false"
@@ -105,11 +110,12 @@ services:
       MQTT_CLIENT_ID: "veritek-backend-${DEPLOY_ENVIRONMENT:-production}"
       MQTT_TOPIC_ROOT: "${MQTT_TOPIC_ROOT:-energy/v1}"
       MQTT_VENDOR_TOPICS: "${MQTT_VENDOR_TOPICS:-}"
+      MQTT_SUBSCRIBE_TOPICS: "${MQTT_SUBSCRIBE_TOPICS:-}"
       MQTT_PUBLIC_HOST: "${MQTT_PUBLIC_HOST:?set MQTT_PUBLIC_HOST}"
       MQTT_PUBLIC_TLS_PORT: "8883"
       MQTT_PLAINTEXT_ENABLED: "${MQTT_PLAINTEXT_ENABLED:-false}"
       EMBEDDED_BROKER_ENABLED: "false"
-      BROKER_WEBHOOK_SECRET: "${BROKER_WEBHOOK_SECRET}"
+      BROKER_WEBHOOK_SECRET: "${BROKER_WEBHOOK_SECRET:?set BROKER_WEBHOOK_SECRET}"
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET}"
       TOKEN_PEPPER: "${TOKEN_PEPPER:?set TOKEN_PEPPER}"
       SEED_ADMIN_EMAIL: "${SEED_ADMIN_EMAIL:?set SEED_ADMIN_EMAIL}"
@@ -126,8 +132,8 @@ services:
     expose:
       - "4000"
     healthcheck:
-      # Readiness, not liveness: an instance with no database should be pulled
-      # out of rotation rather than restarted in a loop.
+      # Readiness, not liveness: an instance with no database is pulled out of
+      # rotation rather than restarted in a loop.
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 10s
@@ -145,25 +151,14 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro
-      - certbot-webroot:/var/www/certbot:ro
+      - ./certbot-webroot:/var/www/certbot:ro
+      # The built dashboard, served as static files.
+      - ./dashboard:/usr/share/nginx/dashboard:ro
     ports:
       - "80:80"
       - "443:443"
     depends_on:
       - backend
-
-  # Renews the certificate used by both nginx and EMQX, and reloads them.
-  certbot:
-    image: certbot/certbot:latest
-    <<: *logging
-    container_name: veritek-certbot
-    volumes:
-      - ./certs:/etc/letsencrypt/live-export
-      - certbot-etc:/etc/letsencrypt
-      - certbot-webroot:/var/www/certbot
-    entrypoint: /bin/sh
-    command: -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --deploy-hook '/bin/sh /deploy-hook.sh'; sleep 12h & wait $${!}; done"
-    restart: unless-stopped
 
   # ------------------------------------------------------------ monitoring --
   prometheus:
@@ -181,6 +176,19 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
 
+  # Host CPU, memory and disk, so the capacity alerts have real data behind them.
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    <<: [*restart, *logging]
+    container_name: veritek-node-exporter
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    expose:
+      - "9100"
+
   grafana:
     image: grafana/grafana:11.5.1
     <<: [*restart, *logging]
@@ -194,38 +202,13 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      # Loopback only. Reach it over the VPN or an SSH tunnel (section 16).
+      # Loopback only. Reach it over an SSH tunnel (section 16).
       - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
 
-  # --------------------------------------------------------------- backups --
-  backup:
-    image: postgres:16-alpine
-    <<: [*restart, *logging]
-    container_name: veritek-backup
-    environment:
-      PGHOST: timescaledb
-      PGUSER: "${POSTGRES_USER:-veritek}"
-      PGPASSWORD: "${POSTGRES_PASSWORD}"
-      PGDATABASE: "${POSTGRES_DB:-veritek_iot}"
-      BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-30}"
-      BACKUP_S3_TARGET: "${BACKUP_S3_TARGET:-}"
-    volumes:
-      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
-      - backup-data:/backups
-    entrypoint: /bin/sh
-    command: -c "while :; do sleep 86400 & wait $${!}; /usr/local/bin/backup.sh; done"
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-
 volumes:
   emqx-data:
-  emqx-log:
   timescale-data:
   prometheus-data:
   grafana-data:
-  certbot-etc:
-  certbot-webroot:
-  backup-data:
