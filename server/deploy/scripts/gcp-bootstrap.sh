@@ -289,8 +289,13 @@ if [ -f "$FRONTEND_DIR/package.json" ]; then
       -e npm_config_cache=/tmp/.npm \
       node:22-alpine sh -c "npm ci --no-audit --no-fund && npm run build"
   then
-    rm -rf "$DEPLOY_DIR/dashboard"
-    cp -r "$FRONTEND_DIR/dist" "$DEPLOY_DIR/dashboard"
+    # Clear the directory's CONTENTS, never the directory itself. nginx bind
+    # mounts this path, and a bind mount follows the inode - delete and recreate
+    # the directory and the container stays attached to the old, unlinked one
+    # and serves nothing.
+    mkdir -p "$DEPLOY_DIR/dashboard"
+    find "$DEPLOY_DIR/dashboard" -mindepth 1 -delete
+    cp -r "$FRONTEND_DIR/dist/." "$DEPLOY_DIR/dashboard/"
     log "dashboard built"
   else
     log "WARNING: dashboard build failed; nginx will keep serving the previous build"
