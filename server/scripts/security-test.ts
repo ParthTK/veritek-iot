@@ -30,6 +30,26 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const LIVE = process.argv.includes('--live');
+
+function arg(name: string): string | undefined {
+  const index = process.argv.indexOf('--' + name);
+  if (index === -1) return undefined;
+  const value = process.argv[index + 1];
+  return value && !value.startsWith('--') ? value : undefined;
+}
+
+/**
+ * Remote mode: provision through the deployment's own API instead of a local
+ * database. Without it, --live against a cloud broker creates credentials in a
+ * local SQLite file that the broker has never heard of, and every allow-test
+ * fails for the wrong reason.
+ */
+const REMOTE = {
+  api: (arg('api') ?? '').replace(/[/]$/, ''),
+  user: arg('admin-user'),
+  pass: arg('admin-pass'),
+};
+const IS_REMOTE = Boolean(REMOTE.api && REMOTE.user && REMOTE.pass);
 const here = dirname(fileURLToPath(import.meta.url));
 
 interface Result {
@@ -70,49 +90,124 @@ async function main(): Promise<void> {
   const { configureLogger } = await import('../src/core/logger.js');
   configureLogger({ level: 'error', pretty: true });
 
-  const { connectDb, closeDb } = await import('../src/db/index.js');
-  const { migrate } = await import('../src/db/migrate.js');
-  const { seed } = await import('./seed.js');
-
-  process.stdout.write('\nMQTT SECURITY TESTS\n' + '='.repeat(60) + '\n');
-  process.stdout.write('mode: ' + (LIVE ? 'live broker' : 'webhook decision logic') + '\n');
-
-  const database = await connectDb();
-  await migrate(database);
-  await seed();
-
-  const { provisionGateway, ensureServiceAccount, revokeGateway } = await import('../src/iot/devices/lifecycle.js');
-  const { topicsFor } = await import('../src/iot/mqtt/topics.js');
-
-  /* Two gateways, so "A must not reach B" is a real question. */
   const suffix = Date.now().toString(36).toUpperCase();
   const alphaUid = 'SEC-A-' + suffix;
   const betaUid = 'SEC-B-' + suffix;
 
-  const alpha = await provisionGateway({ gatewayUid: alphaUid, siteId: 'site-onida', meters: [{ slaveId: 1 }] });
-  const beta = await provisionGateway({ gatewayUid: betaUid, siteId: 'site-onida', meters: [{ slaveId: 1 }] });
-  await ensureServiceAccount();
+  let alphaPassword: string;
+  let betaPassword: string;
+  let betaGatewayId: string;
+  let adminToken = '';
+  let closeDb: () => Promise<void> = async () => undefined;
+
+  const { topicsFor } = await import('../src/iot/mqtt/topics.js');
+
+  if (IS_REMOTE) {
+    /* Provision through the deployment's own API, so the credentials exist in
+       the database the broker actually authenticates against. */
+    const login = await fetch(REMOTE.api + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: REMOTE.user, password: REMOTE.pass }),
+    });
+    const loginBody = (await login.json()) as { token?: string };
+    if (!login.ok || !loginBody.token) {
+      record('admin sign-in for provisioning', 'allow', 'error', 'HTTP ' + login.status);
+      report();
+      return;
+    }
+    adminToken = loginBody.token;
+
+    const provision = async (uid: string): Promise<{ password: string; gatewayId: string }> => {
+      const response = await fetch(REMOTE.api + '/api/provisioning/gateways', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + adminToken },
+        body: JSON.stringify({ gatewayUid: uid, environment: 'staging', meters: [{ slaveId: 1 }] }),
+      });
+      const body = (await response.json()) as {
+        mqttPassword?: string;
+        gateway?: { id?: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.mqttPassword) {
+        throw new Error('provisioning ' + uid + ' failed: ' + (body.error?.message ?? 'HTTP ' + response.status));
+      }
+      return { password: body.mqttPassword, gatewayId: String(body.gateway?.id ?? '') };
+    };
+
+    const alpha = await provision(alphaUid);
+    const beta = await provision(betaUid);
+    alphaPassword = alpha.password;
+    betaPassword = beta.password;
+    betaGatewayId = beta.gatewayId;
+  } else {
+    const db = await import('../src/db/index.js');
+    const { migrate } = await import('../src/db/migrate.js');
+    const { seed } = await import('./seed.js');
+    const database = await db.connectDb();
+    await migrate(database);
+    await seed();
+    closeDb = db.closeDb;
+
+    const { provisionGateway, ensureServiceAccount } = await import('../src/iot/devices/lifecycle.js');
+    const alpha = await provisionGateway({ gatewayUid: alphaUid, siteId: 'site-onida', meters: [{ slaveId: 1 }] });
+    const beta = await provisionGateway({ gatewayUid: betaUid, siteId: 'site-onida', meters: [{ slaveId: 1 }] });
+    await ensureServiceAccount();
+    alphaPassword = alpha.mqttPassword;
+    betaPassword = beta.mqttPassword;
+    betaGatewayId = beta.gateway.id;
+  }
 
   const alphaTopics = topicsFor(alphaUid);
   const betaTopics = topicsFor(betaUid);
 
   if (LIVE) {
-    await runLive({ alphaUid, alphaPassword: alpha.mqttPassword, betaUid, alphaTopics, betaTopics, env });
+    await runLive({ alphaUid, alphaPassword, betaUid, alphaTopics, betaTopics, env });
   } else {
-    await runWebhook({ alphaUid, alphaPassword: alpha.mqttPassword, betaUid, alphaTopics, betaTopics });
+    await runWebhook({ alphaUid, alphaPassword, betaUid, alphaTopics, betaTopics });
   }
 
   /* Revocation has to take effect immediately, in either mode. */
   section('Revoked credential');
-  await revokeGateway(beta.gateway.id, 'security test');
-  const { verifyCredential } = await import('../src/db/repositories/mqttCredentials.js');
-  const revoked = await verifyCredential(betaUid, beta.mqttPassword);
-  record(
-    'revoked gateway cannot authenticate',
-    'deny',
-    revoked.credential ? 'allow' : 'deny',
-    revoked.reason,
-  );
+
+  if (IS_REMOTE) {
+    const response = await fetch(REMOTE.api + '/api/provisioning/gateways/' + betaGatewayId + '/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + adminToken },
+      body: JSON.stringify({ reason: 'security test' }),
+    });
+    record('revocation accepted by the API', 'allow', response.ok ? 'allow' : 'error', 'HTTP ' + response.status);
+
+    // Prove it at the broker, not just in our own database.
+    const mqttLib = (await import('mqtt')).default;
+    const scheme = env.MQTT_TLS ? 'mqtts' : 'mqtt';
+    const brokerUrl = scheme + '://' + env.MQTT_HOST + ':' + env.MQTT_PORT;
+    const outcome = await new Promise<string>((resolve) => {
+      const client = mqttLib.connect(brokerUrl, {
+        clientId: betaUid + '-revoked',
+        username: betaUid,
+        password: betaPassword,
+        reconnectPeriod: 0,
+        connectTimeout: 10000,
+      });
+      client.once('connect', () => {
+        client.end(true);
+        resolve('connected');
+      });
+      client.once('error', (error) => {
+        client.end(true);
+        resolve(error.message);
+      });
+      setTimeout(() => resolve('timeout'), 11000);
+    });
+    record('revoked gateway refused by the broker', 'deny', outcome === 'connected' ? 'allow' : 'deny', outcome);
+  } else {
+    const { revokeGateway } = await import('../src/iot/devices/lifecycle.js');
+    await revokeGateway(betaGatewayId, 'security test');
+    const { verifyCredential } = await import('../src/db/repositories/mqttCredentials.js');
+    const revoked = await verifyCredential(betaUid, betaPassword);
+    record('revoked gateway cannot authenticate', 'deny', revoked.credential ? 'allow' : 'deny', revoked.reason);
+  }
 
   await closeDb();
   report();

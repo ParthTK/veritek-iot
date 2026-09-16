@@ -379,8 +379,36 @@ async function main(): Promise<void> {
 
   await wait(1500);
   const secondMarker = Math.round(2000 + Math.random() * 300) / 10;
+
+  // The refused publish above is answered with deny_action = disconnect, so
+  // this client is very likely already gone. Reconnect before publishing.
+  let publisher = client;
+  if (!client.connected) {
+    const reconnected = await new Promise<mqtt.MqttClient | null>((resolve) => {
+      const next = mqtt.connect(url, {
+        clientId: options.gatewayUid + '-stream',
+        username: options.gatewayUid,
+        password: options.mqttPassword,
+        clean: true,
+        reconnectPeriod: 0,
+        connectTimeout: 20000,
+        rejectUnauthorized: !options.insecure,
+      });
+      next.once('connect', () => resolve(next));
+      next.once('error', () => resolve(null));
+      setTimeout(() => resolve(null), 21000);
+    });
+    if (!reconnected) {
+      check('reconnected for the live-stream test', false, 'could not reconnect after the ACL denial');
+      controller.abort();
+      report();
+      return;
+    }
+    publisher = reconnected;
+  }
+
   await new Promise<void>((resolve) => {
-    client.publish(
+    publisher.publish(
       telemetryTopic,
       JSON.stringify({
         ...payload,
@@ -395,6 +423,7 @@ async function main(): Promise<void> {
 
   const stream = await streamPromise;
   controller.abort();
+  if (publisher !== client) publisher.end(true);
   check(
     'dashboard receives a live update without polling',
     stream.includes('event: telemetry'),
