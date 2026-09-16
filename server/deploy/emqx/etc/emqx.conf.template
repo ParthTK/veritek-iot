@@ -42,6 +42,7 @@ listeners.ssl.default {
   messages_rate = "2000/s"
   bytes_rate = "20MB/s"
   ssl_options {
+    cacertfile = "etc/certs/chain.pem"
     certfile = "etc/certs/fullchain.pem"
     keyfile  = "etc/certs/privkey.pem"
     # Devices authenticate with username/password over TLS. Mutual TLS is not

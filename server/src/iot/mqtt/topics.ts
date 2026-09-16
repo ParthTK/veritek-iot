@@ -64,6 +64,16 @@ export function backendPublishFilters(): string[] {
 }
 
 /**
+ * Command-response topics in the older vendor shape, kept so a gateway that
+ * answers on a sibling of its command topic is still heard.
+ */
+export function legacyResponseFilters(): string[] {
+  if (!env.MQTT_COMMAND_TOPIC) return [];
+  const base = env.MQTT_COMMAND_TOPIC.replace(/{gatewayUid}/g, '+');
+  return [base + '/response', base + '/ack'];
+}
+
+/**
  * Everything the consumer listens to: the v1 namespace, plus any vendor-shaped
  * namespace still in play (during commissioning, or for a gateway whose topic
  * is not configurable), plus anything explicitly configured.
@@ -72,6 +82,7 @@ export function consumerSubscriptions(): string[] {
   const filters = new Set<string>(backendSubscriptions());
   for (const filter of env.MQTT_VENDOR_TOPICS) filters.add(filter);
   for (const filter of env.MQTT_SUBSCRIBE_TOPICS) filters.add(filter);
+  for (const filter of legacyResponseFilters()) filters.add(filter);
   return [...filters];
 }
 
@@ -118,11 +129,18 @@ export function deviceAcl(gatewayId: string, extraPublish: string[] = []): AclSp
   };
 }
 
-/** The ACL for the backend's own ingestion account (spec section 9). */
+/**
+ * The ACL for the backend's own ingestion account (spec section 9).
+ *
+ * Derived from consumerSubscriptions() rather than listed separately. When the
+ * two were maintained apart, the consumer subscribed to a vendor namespace the
+ * ACL did not grant; with deny_action = disconnect that is not a warning, it is
+ * the broker dropping the backend in a reconnect loop.
+ */
 export function serviceAcl(): AclSpec {
   return {
     publish: backendPublishFilters(),
-    subscribe: [...backendSubscriptions(), ...env.MQTT_VENDOR_TOPICS],
+    subscribe: consumerSubscriptions(),
   };
 }
 

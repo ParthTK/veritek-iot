@@ -45,7 +45,9 @@ const csv = (fallback: string[]) =>
     .string()
     .optional()
     .transform((value) => {
-      if (value === undefined || value.trim() === '') return fallback;
+      if (value === undefined) return fallback;
+      // Set-but-empty means "none". Falling back to the default here would
+      // silently restore it when a deployment deliberately clears the list.
       return value
         .split(',')
         .map((part) => part.trim())

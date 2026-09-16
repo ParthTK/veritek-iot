@@ -38,6 +38,12 @@ services:
       EMQX_NODE__NAME: "emqx@127.0.0.1"
       EMQX_NODE__COOKIE: "${EMQX_NODE_COOKIE:?set EMQX_NODE_COOKIE}"
       EMQX_DASHBOARD__DEFAULT_PASSWORD: "${EMQX_DASHBOARD_PASSWORD:?set EMQX_DASHBOARD_PASSWORD}"
+    # EMQX clamps max_connections to the file-descriptor limit, so the default
+    # 1024 would silently cap the broker far below its configured ceiling.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       # Rendered from emqx.conf.template by render-emqx-config.sh; carries the
       # webhook secret, so it is gitignored.

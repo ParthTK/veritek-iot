@@ -8,7 +8,7 @@ import { topicMatches } from '../adapters/jsonPath.js';
 import { ingest } from '../telemetry/ingestion.js';
 import { handleCommandResponse } from '../commands/commandService.js';
 import { connectMqtt } from './client.js';
-import { consumerSubscriptions, parseTopic } from './topics.js';
+import { consumerSubscriptions, legacyResponseFilters, parseTopic } from './topics.js';
 
 const log = createLogger('mqtt:consumer');
 
@@ -53,20 +53,13 @@ export function consumerStats(): {
   };
 }
 
-/** Legacy vendor-shaped command acknowledgement topics. */
-function legacyResponseFilters(): string[] {
-  if (!env.MQTT_COMMAND_TOPIC) return [];
-  const base = env.MQTT_COMMAND_TOPIC.replace('{gatewayUid}', '+');
-  return [base + '/response', base + '/ack'];
-}
-
 export async function startConsumer(): Promise<void> {
   if (started) return;
   const client = await connectMqtt();
   if (!client) return;
 
   const subscribe = (): void => {
-    const filters = [...consumerSubscriptions(), ...legacyResponseFilters()];
+    const filters = consumerSubscriptions();
     for (const filter of filters) {
       client.subscribe(filter, { qos: env.MQTT_QOS as 0 | 1 | 2 }, (error, granted) => {
         if (error) {
