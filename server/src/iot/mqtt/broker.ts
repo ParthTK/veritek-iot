@@ -4,7 +4,9 @@ import { env, isProduction } from '../../config/env.js';
 import { generateToken } from '../../core/hash.js';
 import { LogEvent } from '../../core/logEvents.js';
 import { createLogger } from '../../core/logger.js';
-import { findGatewayByToken, getGatewayByUid } from '../../db/repositories/gateways.js';
+import { getGatewayByUid } from '../../db/repositories/gateways.js';
+import { getCredentialByUsername, verifyCredential } from '../../db/repositories/mqttCredentials.js';
+import { aclAllows, renderAcl } from './topics.js';
 import { topicMatches } from '../adapters/jsonPath.js';
 
 const log = createLogger('mqtt:broker');
@@ -27,6 +29,7 @@ interface BrokerClient {
   veritekUsername?: string;
   veritekNamespace?: string | null;
   veritekIsBackend?: boolean;
+  veritekCredentialAcl?: { publish: string[]; subscribe: string[] } | null;
 }
 
 interface BrokerPacket {
@@ -141,7 +144,7 @@ export async function startEmbeddedBroker(): Promise<boolean> {
       done();
       return;
     }
-    if (isAllowed(client, packet.topic)) {
+    if (isAllowed(client, packet.topic, 'publish')) {
       done();
       return;
     }
@@ -156,7 +159,7 @@ export async function startEmbeddedBroker(): Promise<boolean> {
   };
 
   broker.authorizeSubscribe = (client, sub, done) => {
-    if (!client || isAllowed(client, sub.topic)) {
+    if (!client || isAllowed(client, sub.topic, 'subscribe')) {
       done(null, sub);
       return;
     }
@@ -235,18 +238,28 @@ async function authenticate(
     return true;
   }
 
-  // A provisioned gateway: username is its uid, password is its device token.
+    // A provisioned device or service account. Same credential table, same ACL
+  // shape and same decisions the production broker reaches through the HTTP
+  // webhooks - so a test that passes here means something.
   if (username && secret) {
-    const gateway = await getGatewayByUid(username);
-    if (gateway?.hasAuthToken) {
-      const matched = await findGatewayByToken(secret);
-      if (matched && matched.id === gateway.id) {
-        client.veritekUsername = username;
-        client.veritekNamespace = gateway.topicNamespace ?? null;
-        return true;
+    const { credential } = await verifyCredential(username, secret);
+    if (credential) {
+      const gateway = credential.gatewayId ? await getGatewayByUid(credential.gatewayUid ?? username) : null;
+      if (gateway && (!gateway.enabled || ['revoked', 'suspended', 'decommissioned'].includes(gateway.lifecycleState))) {
+        return false;
       }
-      return false;
+      client.veritekUsername = username;
+      client.veritekIsBackend = credential.kind === 'service';
+      client.veritekCredentialAcl = {
+        publish: renderAcl(credential.acl.publish ?? [], { gatewayId: credential.gatewayUid ?? username }),
+        subscribe: renderAcl(credential.acl.subscribe ?? [], { gatewayId: credential.gatewayUid ?? username }),
+      };
+      client.veritekNamespace = gateway?.topicNamespace ?? null;
+      return true;
     }
+    // An unknown username with a password is a failed attempt, not a reason to
+    // fall through to the shared development credential.
+    if (await getCredentialByUsername(username)) return false;
   }
 
   // Shared development credentials for the simulator and bench testing.
@@ -262,20 +275,40 @@ async function authenticate(
 /**
  * Topic ACL.
  *
- * A gateway with a namespace is confined to it. Everything else is limited to
- * the namespaces the backend actually subscribes to, so even a shared
- * development credential cannot open an unrestricted public topic tree.
+ * A credential issued through provisioning carries its own publish/subscribe
+ * rules, and those are the only authority - the same decision EMQX reaches by
+ * calling /internal/broker/acl in production.
+ *
+ * The fallback below applies only to the shared development credential, which
+ * has no rules of its own; it is still confined to the namespaces the backend
+ * actually subscribes to, so even bench testing cannot open a public tree.
  */
-function isAllowed(client: BrokerClient, topic: string): boolean {
+function isAllowed(client: BrokerClient, topic: string, action: 'publish' | 'subscribe'): boolean {
+  if (client.veritekCredentialAcl) {
+    const rules = action === 'publish'
+      ? client.veritekCredentialAcl.publish
+      : client.veritekCredentialAcl.subscribe;
+    return aclAllows(rules, topic);
+  }
+
   if (client.veritekIsBackend) return true;
 
   if (client.veritekNamespace) {
     return topicMatches(client.veritekNamespace + '/#', topic) || topic === client.veritekNamespace;
   }
 
-  const roots = [...env.MQTT_SUBSCRIBE_TOPICS, env.MQTT_COMMAND_TOPIC, env.MQTT_STATUS_TOPIC]
+  // Shared development credential: never the whole tree.
+  if (topic === '#' || topic.startsWith('#')) return false;
+
+  const roots = [
+    ...env.MQTT_SUBSCRIBE_TOPICS,
+    ...env.MQTT_VENDOR_TOPICS,
+    env.MQTT_TOPIC_ROOT + '/#',
+    env.MQTT_COMMAND_TOPIC,
+    env.MQTT_STATUS_TOPIC,
+  ]
     .filter(Boolean)
-    .map((filter) => filter.replace(/\{gatewayUid\}/g, '+'));
+    .map((filter) => filter.replace(/{gatewayUid}/g, '+'));
 
   return roots.some((filter) => topicMatches(filter, topic) || topicMatches(rootOf(filter) + '/#', topic));
 }

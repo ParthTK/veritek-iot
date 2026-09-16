@@ -4,6 +4,15 @@ data
 .env
 .env.local
 *.log
+
+# Deployment secrets. Templates are committed; filled-in copies never are.
+deploy/env/*.env
+!deploy/env/*.env.example
+# Rendered from emqx.conf.template - contains the broker webhook secret.
+deploy/emqx/etc/emqx.conf
+# TLS private keys and certificates.
+deploy/certs/*
+!deploy/certs/.gitkeep
 deploy/mosquitto/passwd
 deploy/mosquitto/aclfile
 deploy/mosquitto/certs/*

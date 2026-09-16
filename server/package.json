@@ -18,9 +18,15 @@
     "sniffer": "tsx --env-file-if-exists=.env scripts/mqtt-sniffer.ts",
     "broker": "tsx --env-file-if-exists=.env scripts/broker.ts",
     "verify:e2e": "tsx --env-file-if-exists=.env scripts/verify-e2e.ts",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "test:security": "tsx --env-file-if-exists=.env scripts/security-test.ts",
+    "test:load": "tsx --env-file-if-exists=.env scripts/load-test.ts",
+    "test:failure": "tsx --env-file-if-exists=.env scripts/failure-test.ts",
+    "verify:cloud": "tsx --env-file-if-exists=.env scripts/verify-cloud.ts",
+    "provision": "tsx --env-file-if-exists=.env scripts/provision.ts"
   },
   "dependencies": {
+    "@prometheus-io/client": "^0.16.1",
     "aedes": "^1.1.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

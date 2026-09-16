@@ -4,6 +4,7 @@ import type { IClientOptions, MqttClient } from 'mqtt';
 import { env, mqttDisplayUrl, mqttProtocol } from '../../config/env.js';
 import { LogEvent } from '../../core/logEvents.js';
 import { createLogger } from '../../core/logger.js';
+import { metrics } from '../../observability/metrics.js';
 
 const log = createLogger('mqtt:client');
 
@@ -50,7 +51,8 @@ function buildOptions(): IClientOptions {
     clientId: env.MQTT_CLIENT_ID,
     clean: env.MQTT_CLEAN_SESSION,
     keepalive: env.MQTT_KEEPALIVE_SECONDS,
-    reconnectPeriod: env.MQTT_RECONNECT_PERIOD_MS,
+    // Seeded from config; recomputed with backoff + jitter on every retry.
+    reconnectPeriod: env.MQTT_RECONNECT_MIN_MS,
     connectTimeout: env.MQTT_CONNECT_TIMEOUT_MS,
     protocolVersion: env.MQTT_PROTOCOL_VERSION as 3 | 4 | 5,
     resubscribe: true,
@@ -78,6 +80,24 @@ function buildOptions(): IClientOptions {
   }
 
   return options;
+}
+
+
+/**
+ * Reconnect delay: exponential backoff with jitter (spec section 11).
+ *
+ * The jitter matters at estate scale. After a broker restart every client would
+ * otherwise retry on the same schedule and arrive together, re-creating the
+ * load that took the broker down - so each delay is spread by a random ratio.
+ */
+export function nextReconnectDelayMs(attempt: number): number {
+  const ratio = Math.min(Math.max(Number(env.MQTT_RECONNECT_JITTER_RATIO) || 0, 0), 1);
+  const exponential = Math.min(
+    env.MQTT_RECONNECT_MIN_MS * 2 ** Math.max(0, attempt - 1),
+    env.MQTT_RECONNECT_MAX_MS,
+  );
+  const jitter = exponential * ratio * (Math.random() * 2 - 1);
+  return Math.round(Math.min(Math.max(exponential + jitter, env.MQTT_RECONNECT_MIN_MS), env.MQTT_RECONNECT_MAX_MS));
 }
 
 export function getClient(): MqttClient | null {
@@ -121,14 +141,26 @@ export async function connectMqtt(): Promise<MqttClient | null> {
       clientId: env.MQTT_CLIENT_ID,
     });
     hasConnectedOnce = true;
+    metrics.mqttConnected.set(1);
+    // A healthy connection resets the backoff, so the next unrelated outage
+    // starts retrying quickly rather than at the previous maximum.
+    reconnectCount = 0;
+    client!.options.reconnectPeriod = env.MQTT_RECONNECT_MIN_MS;
   });
 
   client.on('reconnect', () => {
     state = 'reconnecting';
     reconnectCount += 1;
+    metrics.mqttReconnects.inc();
+    metrics.mqttConnected.set(0);
+    // MQTT.js reads this before scheduling the next attempt, so updating it
+    // here is what turns its fixed interval into real backoff.
+    const delay = nextReconnectDelayMs(reconnectCount);
+    client!.options.reconnectPeriod = delay;
     log.warn('reconnecting to broker', {
       event: LogEvent.MQTT_DISCONNECTED,
       attempt: reconnectCount,
+      nextRetryMs: delay,
       broker: mqttDisplayUrl(),
     });
   });
@@ -142,6 +174,8 @@ export async function connectMqtt(): Promise<MqttClient | null> {
 
   client.on('offline', () => {
     state = 'disconnected';
+    metrics.mqttDisconnects.inc();
+    metrics.mqttConnected.set(0);
     log.warn('client is offline', { event: LogEvent.MQTT_DISCONNECTED });
   });
 

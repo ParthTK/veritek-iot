@@ -15,6 +15,9 @@ import { GatewaySimulator } from './iot/simulator/simulator.js';
 import { startAggregationScheduler, stopAggregationScheduler } from './iot/telemetry/aggregation.js';
 import { drainPendingBacklog } from './iot/telemetry/ingestion.js';
 import { closeRealtime, startRealtimeBridge } from './realtime/hub.js';
+import { ensureServiceAccount } from './iot/devices/lifecycle.js';
+import { startMetricsRefresh, stopMetricsRefresh } from './observability/metrics.js';
+import { startTlsMonitor, stopTlsMonitor } from './observability/tlsMonitor.js';
 import { seed } from '../scripts/seed.js';
 
 const log = createLogger('boot');
@@ -37,6 +40,16 @@ async function main(): Promise<void> {
   // so the baseline is idempotently applied at boot.
   await seed();
 
+  // The backend authenticates to the broker like any other client, through a
+  // service account that is never a gateway's credential (spec section 9).
+  const service = await ensureServiceAccount();
+  if (service.created && service.password) {
+    log.warn(
+      'created MQTT service account ' + service.username + ' with a generated password. ' +
+        'Set MQTT_PASSWORD to this value (shown once): ' + service.password,
+    );
+  }
+
   /* -- 2. broker ---------------------------------------------------------- */
   // Order matters: the embedded broker has to be listening before our own
   // client tries to connect to it.
@@ -47,6 +60,9 @@ async function main(): Promise<void> {
   startAlertEngine();
   startAggregationScheduler();
   startHealthMonitor();
+  if (env.METRICS_ENABLED) startMetricsRefresh(env.METRICS_REFRESH_SECONDS);
+  // Renewal is automated; this is what notices when the automation stops.
+  if (env.MQTT_TLS || env.TLS_CERT_PATH_FOR_EXPIRY_CHECK) startTlsMonitor();
 
   /* -- 4. transports ------------------------------------------------------ */
   await startConsumer();
@@ -84,6 +100,8 @@ async function shutdown(signal: string): Promise<void> {
   stopConsumer();
   stopAggregationScheduler();
   stopHealthMonitor();
+  stopMetricsRefresh();
+  stopTlsMonitor();
   closeRealtime();
 
   await simulator?.disconnect();

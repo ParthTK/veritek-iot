@@ -12,6 +12,8 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/auth.js';
 import { rateLimit } from './middleware/rateLimit.js';
 import { createAdminRouter } from './routes/admin.js';
+import { createBrokerAuthRouter } from './routes/brokerAuth.js';
+import { createProvisioningRouter } from './routes/provisioning.js';
 import { createAlertsRouter } from './routes/alerts.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCommissioningRouter } from './routes/commissioning.js';
@@ -20,6 +22,7 @@ import { createHealthRouter } from './routes/health.js';
 import { createMetersRouter } from './routes/meters.js';
 import { createSitesRouter } from './routes/sites.js';
 import { createStreamRouter } from './routes/stream.js';
+import { metricsContentType, metricsText, refreshStateMetrics } from '../observability/metrics.js';
 
 const log = createLogger('api');
 const here = dirname(fileURLToPath(import.meta.url));
@@ -70,6 +73,28 @@ export function createApp(): Express {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false, limit: '256kb' }));
 
+  if (env.BROKER_WEBHOOK_ENABLED) {
+    // The broker authenticates with a shared secret, not a dashboard session,
+    // so this mounts outside requireAuth. Deployment binds it to the internal
+    // network only - see deploy/ and the firewall notes.
+    app.use('/internal/broker', createBrokerAuthRouter());
+  }
+
+  if (env.METRICS_ENABLED) {
+    app.get(env.METRICS_PATH, async (req, res) => {
+      if (env.METRICS_TOKEN) {
+        const header = req.header('authorization');
+        if (header !== 'Bearer ' + env.METRICS_TOKEN) {
+          res.status(401).type('text/plain').send('unauthorized');
+          return;
+        }
+      }
+      await refreshStateMetrics().catch(() => undefined);
+      res.setHeader('Content-Type', metricsContentType());
+      res.send(await metricsText());
+    });
+  }
+
   app.use('/api/health', createHealthRouter());
   app.use('/api/auth', createAuthRouter());
 
@@ -86,6 +111,7 @@ export function createApp(): Express {
   app.use('/api/alerts', requireAuth, dashboardLimiter, createAlertsRouter());
   app.use('/api/commissioning', requireAuth, dashboardLimiter, createCommissioningRouter());
   app.use('/api/admin', requireAuth, dashboardLimiter, createAdminRouter());
+  app.use('/api/provisioning', requireAuth, dashboardLimiter, createProvisioningRouter());
 
   /* The internal commissioning screen (spec section 24). Static, no build step,
      talks to the same APIs the dashboard will. */

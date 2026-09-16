@@ -6,6 +6,13 @@ import { toBool, toInt, toIso, toJson, toNum, toStr } from '../types.js';
 
 export type GatewayStatus = 'ONLINE' | 'OFFLINE' | 'DEGRADED' | 'UNKNOWN';
 
+/**
+ * Administrative state, as opposed to `status` which is observed connectivity.
+ * A gateway can be ACTIVE and OFFLINE at once: we intend it to work, it is not
+ * currently reporting.
+ */
+export type LifecycleState = 'provisioned' | 'active' | 'suspended' | 'revoked' | 'decommissioned';
+
 export interface Gateway {
   id: string;
   gatewayUid: string;
@@ -26,6 +33,12 @@ export interface Gateway {
   lastSeenAt: string | null;
   lastDataAt: string | null;
   status: GatewayStatus;
+  /** Connectivity health. Separate from lifecycleState, which is intent. */
+  lifecycleState: LifecycleState;
+  environment: string;
+  commissionedAt: string | null;
+  decommissionedAt: string | null;
+  replacedByGatewayId: string | null;
   enabled: boolean;
   hasAuthToken: boolean;
   config: Record<string, unknown>;
@@ -74,6 +87,11 @@ function map(row: Record<string, unknown>): Gateway {
     lastSeenAt: toIso(row.last_seen_at),
     lastDataAt: toIso(row.last_data_at),
     status: (toStr(row.status) as GatewayStatus) ?? 'UNKNOWN',
+    lifecycleState: (toStr(row.lifecycle_state) as LifecycleState) ?? 'provisioned',
+    environment: toStr(row.environment) ?? 'production',
+    commissionedAt: toIso(row.commissioned_at),
+    decommissionedAt: toIso(row.decommissioned_at),
+    replacedByGatewayId: toStr(row.replaced_by_gateway_id),
     enabled: toBool(row.enabled),
     // The hash itself never leaves the repository.
     hasAuthToken: Boolean(row.auth_token_hash),

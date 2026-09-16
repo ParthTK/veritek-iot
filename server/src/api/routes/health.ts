@@ -17,7 +17,9 @@ import { subscriberCount } from '../../realtime/hub.js';
 /**
  * Operational health (spec section 16).
  *
- *   GET /api/health         - liveness, safe to expose to a load balancer
+ *   GET /api/health         - simple up/down, safe for a load balancer
+ *   GET /api/health/live    - liveness probe: process only, no dependencies
+ *   GET /api/health/ready   - readiness probe: dependencies must be usable
  *   GET /api/health/detail  - the full picture for an operator
  */
 export function createHealthRouter(): express.Router {
@@ -39,6 +41,54 @@ export function createHealthRouter(): express.Router {
       database,
       mqtt: mqtt.state,
       uptimeSeconds: Math.round(process.uptime()),
+    });
+  });
+
+
+  /**
+   * Liveness: is this process wedged? It must not touch the database or the
+   * broker - a database blip should not make the orchestrator kill and restart
+   * a container that is otherwise fine (spec section 18).
+   */
+  router.get('/live', (_req, res) => {
+    res.json({ status: 'alive', uptimeSeconds: Math.round(process.uptime()) });
+  });
+
+  /**
+   * Readiness: should this instance receive traffic? Here the dependencies do
+   * matter, so a container with no database is pulled out of the load balancer
+   * rather than serving errors.
+   */
+  router.get('/ready', async (_req, res) => {
+    const checks: Record<string, { ok: boolean; detail?: string }> = {};
+
+    try {
+      await db().query('SELECT 1');
+      checks.database = { ok: true };
+    } catch (error) {
+      checks.database = { ok: false, detail: error instanceof Error ? error.message : 'unreachable' };
+    }
+
+    const mqtt = connectionState();
+    // MQTT down is degraded, not unready: HTTP ingestion and the dashboard APIs
+    // still work, and packets already stored keep draining.
+    checks.mqtt = { ok: !env.MQTT_ENABLED || mqtt.state === 'connected', detail: mqtt.state };
+
+    const consumer = consumerStats();
+    checks.mqttConsumer = { ok: !env.MQTT_ENABLED || consumer.started };
+
+    const queue = ingestStats();
+    checks.ingestQueue = {
+      ok: queue.queued < env.INGEST_QUEUE_MAX * 0.9,
+      detail: queue.queued + ' queued',
+    };
+
+    const ready = checks.database?.ok === true && checks.ingestQueue?.ok === true;
+    res.status(ready ? 200 : 503).json({
+      status: ready ? 'ready' : 'not-ready',
+      environment: env.DEPLOY_ENVIRONMENT,
+      checks,
+      lastMqttMessageAt: consumer.lastMessageAt,
     });
   });
 

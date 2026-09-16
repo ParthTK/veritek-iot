@@ -1,0 +1,30 @@
+# Prometheus scrape configuration (spec section 19).
+#
+# All targets are on the internal compose network; nothing here is published.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: "${DEPLOY_ENVIRONMENT:-production}"
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # Our own metrics: ingest rates, duplicates, processing latency, device
+  # freshness, broker auth/ACL outcomes.
+  - job_name: veritek-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:4000"]
+
+  # EMQX's own metrics: connections, message throughput, dropped packets.
+  - job_name: emqx
+    metrics_path: /api/v5/prometheus/stats
+    static_configs:
+      - targets: ["emqx:18083"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

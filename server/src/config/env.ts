@@ -197,6 +197,58 @@ const schema = z.object({
   SEED_ADMIN_EMAIL: str('admin@veritek.com'),
   SEED_ADMIN_PASSWORD: str('Pass@123'),
 
+  /* ------------------------------------------- production broker (EMQX) -- */
+  // Public endpoint the physical gateways are configured against. Always a DNS
+  // name, never a raw IP: infrastructure must be replaceable without touching
+  // hundreds of deployed devices (spec section 2).
+  MQTT_PUBLIC_HOST: str('mqtt.energy.example.com'),
+  MQTT_PUBLIC_TLS_PORT: int(8883, 1, 65535),
+  MQTT_PUBLIC_PLAIN_PORT: int(1883, 1, 65535),
+  /**
+   * Leave plaintext 1883 reachable. Intended only for a controlled
+   * commissioning window, because this unit's TLS capability is unverified.
+   * Turn off once the gateway is confirmed working on 8883.
+   */
+  MQTT_PLAINTEXT_ENABLED: bool(true),
+
+  /** Root of our own namespace: energy/v1/gateways/{gatewayId}/... */
+  MQTT_TOPIC_ROOT: str('energy/v1'),
+  /**
+   * Extra namespaces to subscribe to, for a gateway that cannot be configured
+   * onto our convention. Filled in at commissioning if the unit turns out to
+   * insist on a fixed topic of its own.
+   */
+  MQTT_VENDOR_TOPICS: csv([]),
+
+  /** Shared secret the broker presents on its auth/ACL webhooks. */
+  BROKER_WEBHOOK_SECRET: str('dev-only-change-me'),
+  BROKER_WEBHOOK_RATE_LIMIT_PER_MINUTE: int(3000, 10, 200000),
+  /** Expose the auth/ACL webhooks at all. Off for a broker with static auth. */
+  BROKER_WEBHOOK_ENABLED: bool(true),
+
+  /* ------------------------------------------------ reconnect behaviour -- */
+  // Exponential backoff with jitter, so a broker restart does not bring every
+  // client back in the same millisecond (spec section 11).
+  MQTT_RECONNECT_MIN_MS: int(1000, 100, 60000),
+  MQTT_RECONNECT_MAX_MS: int(60000, 1000, 600000),
+  MQTT_RECONNECT_JITTER_RATIO: str('0.3'),
+
+  /* ----------------------------------------------------- observability -- */
+  METRICS_ENABLED: bool(true),
+  METRICS_PATH: str('/metrics'),
+  /** Bearer token for /metrics. Blank leaves it open on the internal network. */
+  METRICS_TOKEN: optionalStr(),
+  METRICS_REFRESH_SECONDS: int(15, 5, 600),
+  /** Warn this many days before the MQTT TLS certificate expires. */
+  TLS_EXPIRY_WARNING_DAYS: int(21, 1, 365),
+  /** Certificate file to watch. Blank falls back to probing the live listener. */
+  TLS_CERT_PATH_FOR_EXPIRY_CHECK: str(''),
+  MQTT_AUTH_EVENT_RETENTION_DAYS: int(30, 1, 3650),
+
+  /* ---------------------------------------------------------- deployment -- */
+  /** staging | production. Keeps the two estates apart (spec section 24). */
+  DEPLOY_ENVIRONMENT: str('development'),
+
   /* ------------------------------------------------------- simulator -- */
   SIMULATOR_ENABLED: bool(false),
   SIMULATOR_GATEWAY_UID: str('TEST-GW-001'),
@@ -242,6 +294,15 @@ export function productionConfigWarnings(): string[] {
   if (!isProduction) return warnings;
   if (env.JWT_SECRET === 'dev-only-change-me') warnings.push('JWT_SECRET is still the development default.');
   if (env.TOKEN_PEPPER === 'dev-only-change-me') warnings.push('TOKEN_PEPPER is still the development default.');
+  if (env.BROKER_WEBHOOK_SECRET === 'dev-only-change-me') {
+    warnings.push('BROKER_WEBHOOK_SECRET is still the development default; anyone who reaches the broker webhooks could authorise a device.');
+  }
+  if (env.MQTT_PLAINTEXT_ENABLED) {
+    warnings.push('MQTT_PLAINTEXT_ENABLED is on; port 1883 is for a commissioning window only, not steady state.');
+  }
+  if (env.MQTT_PUBLIC_HOST.includes('example.com')) {
+    warnings.push('MQTT_PUBLIC_HOST is still the placeholder hostname; devices cannot be provisioned against it.');
+  }
   if (env.EMBEDDED_BROKER_ENABLED) warnings.push('EMBEDDED_BROKER_ENABLED is on; use a managed broker in production.');
   if (env.EMBEDDED_BROKER_ALLOW_ANONYMOUS) warnings.push('Anonymous MQTT access is enabled.');
   if (!env.MQTT_TLS) warnings.push('MQTT_TLS is off; telemetry and credentials cross the network in clear text.');

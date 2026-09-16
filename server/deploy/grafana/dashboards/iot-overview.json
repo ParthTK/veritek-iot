@@ -1,0 +1,172 @@
+{
+  "uid": "veritek-iot-overview",
+  "title": "VERITEK IoT - Connectivity and Ingestion",
+  "tags": ["veritek", "iot", "mqtt"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Gateways online",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(veritek_gateways_total{status=\"ONLINE\"})", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Gateways offline",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "sum(veritek_gateways_total{status=\"OFFLINE\"})", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Backend MQTT connection",
+      "description": "1 = the backend consumer is connected to the broker.",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "veritek_mqtt_connected", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "TLS certificate expires in",
+      "description": "Alerts fire below 21 days, critically below 7.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "veritek_tls_certificate_expiry_seconds", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 604800 },
+              { "color": "green", "value": 1814400 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Ingest queue depth",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "veritek_ingest_queue_depth", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "MQTT messages received per second, by kind",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "sum by (kind) (rate(veritek_mqtt_messages_received_total[5m]))", "legendFormat": "{{kind}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Packet outcomes per second",
+      "description": "Duplicates are expected with QoS 1 - they prove deduplication is working, not that something is wrong.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "sum(rate(veritek_ingest_accepted_total[5m]))", "legendFormat": "accepted", "refId": "A" },
+        { "expr": "sum(rate(veritek_ingest_duplicate_total[5m]))", "legendFormat": "duplicate", "refId": "B" },
+        { "expr": "sum(rate(veritek_ingest_malformed_total[5m]))", "legendFormat": "malformed", "refId": "C" },
+        { "expr": "sum(rate(veritek_ingest_failure_total[5m]))", "legendFormat": "failed", "refId": "D" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Processing latency (p50 / p95 / p99)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(veritek_ingest_processing_seconds_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(veritek_ingest_processing_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(veritek_ingest_processing_seconds_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Measurement-to-arrival lag (p95)",
+      "description": "Spikes here are buffered replay after a cellular outage, not a backend problem.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(veritek_telemetry_lag_seconds_bucket[5m])) by (le))", "legendFormat": "p95 lag", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Broker authentication and ACL outcomes",
+      "description": "Sustained denials mean stale credentials after a rotation, or someone probing.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "sum(rate(veritek_mqtt_auth_success_total[5m]))", "legendFormat": "auth allowed", "refId": "A" },
+        { "expr": "sum(rate(veritek_mqtt_auth_failure_total[5m]))", "legendFormat": "auth denied", "refId": "B" },
+        { "expr": "sum(rate(veritek_mqtt_acl_deny_total[5m]))", "legendFormat": "ACL denied", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reconnections and disconnections",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        { "expr": "sum(rate(veritek_mqtt_reconnect_total[15m]))", "legendFormat": "reconnects", "refId": "A" },
+        { "expr": "sum(rate(veritek_mqtt_disconnect_total[15m]))", "legendFormat": "disconnects", "refId": "B" }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Time since each gateway last delivered telemetry",
+      "description": "The single most useful table during commissioning and after an outage.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 28 },
+      "targets": [
+        { "expr": "sort_desc(veritek_gateway_last_telemetry_age_seconds)", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 300 },
+              { "color": "red", "value": 900 }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

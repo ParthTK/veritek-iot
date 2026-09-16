@@ -1,0 +1,200 @@
+# EMQX 5.x configuration for the VERITEK energy platform.
+#
+# Rendered to emqx.conf by deploy/scripts/render-emqx-config.sh, which
+# substitutes the __PLACEHOLDER__ tokens from the deployment env file. The
+# rendered file is gitignored because it contains the webhook secret.
+#
+# NOTE ON SYNTAX: the ${username} / ${topic} forms below are EMQX's own
+# placeholders and must survive rendering verbatim - which is why the render
+# script substitutes __TOKENS__ with sed rather than running envsubst over the
+# whole file.
+
+node {
+  name = "emqx@127.0.0.1"
+  data_dir = "/opt/emqx/data"
+}
+
+log {
+  console {
+    enable = true
+    level = info
+    formatter = json
+  }
+  file {
+    enable = true
+    level = info
+    path = "/opt/emqx/log/emqx.log"
+    rotation_count = 10
+    rotation_size = 50MB
+  }
+}
+
+# ---------------------------------------------------------------- listeners --
+
+listeners.tcp.default {
+  # Plaintext MQTT. Bound inside the host only unless a commissioning window has
+  # deliberately opened it - see deploy/scripts/firewall.sh. It exists because
+  # this gateway's TLS capability is not yet confirmed (spec section 3).
+  bind = "0.0.0.0:1883"
+  max_connections = 5000
+  # Generous on purpose: a site returning from a 4G outage uploads its whole
+  # buffer in a burst, and throttling that would lose real meter data
+  # (spec section 15).
+  max_conn_rate = "200/s"
+  messages_rate = "2000/s"
+  bytes_rate = "20MB/s"
+  enable_authn = true
+}
+
+listeners.ssl.default {
+  # The production endpoint. mqtts://__MQTT_PUBLIC_HOST__:8883
+  bind = "0.0.0.0:8883"
+  max_connections = 20000
+  max_conn_rate = "200/s"
+  messages_rate = "2000/s"
+  bytes_rate = "20MB/s"
+  enable_authn = true
+  ssl_options {
+    certfile = "/opt/emqx/etc/certs/fullchain.pem"
+    keyfile  = "/opt/emqx/etc/certs/privkey.pem"
+    # We authenticate devices with username/password over TLS, not with client
+    # certificates - the gateway's support for mutual TLS is unverified. Switch
+    # verify to verify_peer once that is confirmed and certs are provisioned.
+    verify = verify_none
+    fail_if_no_peer_cert = false
+    versions = ["tlsv1.3", "tlsv1.2"]
+    ciphers = []
+  }
+}
+
+# Websocket listeners are off: nothing in this architecture uses them, and an
+# unused listener is only an attack surface.
+listeners.ws.default  { enable = false }
+listeners.wss.default { enable = false }
+
+# ------------------------------------------------------------------- limits --
+
+mqtt {
+  # Bigger than any single reading, big enough for a buffered batch.
+  max_packet_size = 1MB
+  max_topic_levels = 12
+  max_qos_allowed = 1
+  # Tolerate a cellular link that misses a keepalive or two before dropping.
+  keepalive_multiplier = 1.5
+  retain_available = true
+  max_clientid_len = 128
+  # A reconnecting gateway takes over its own session rather than being fought
+  # off by a half-dead previous connection.
+  use_username_as_clientid = false
+}
+
+force_shutdown {
+  enable = true
+  max_mailbox_size = 10000
+  max_heap_size = 64MB
+}
+
+# ----------------------------------------------------------- authentication --
+# Every CONNECT is resolved against the backend, which owns the credential
+# table. There is no static password file to edit when a site is installed, and
+# a revoked credential stops working on the next connection attempt
+# (spec sections 5, 6 and 33).
+
+authentication = [
+  {
+    mechanism = password_based
+    backend = http
+    enable = true
+    method = post
+    url = "__BACKEND_INTERNAL_URL__/internal/broker/auth"
+    headers {
+      "content-type" = "application/json"
+      "x-broker-secret" = "__BROKER_WEBHOOK_SECRET__"
+    }
+    body {
+      username = "${username}"
+      password = "${password}"
+      clientid = "${clientid}"
+      peerhost = "${peerhost}"
+    }
+    request_timeout = "5s"
+    pool_size = 16
+    # If the backend is unreachable EMQX gets no 'allow', so the connection is
+    # refused. Availability is not traded for an open door.
+    enable_pipelining = 100
+  }
+]
+
+# ------------------------------------------------------------ authorization --
+
+authorization {
+  # The rule that makes section 8 true: anything not explicitly permitted is
+  # denied, and a client that tries is disconnected rather than silently ignored.
+  no_match = deny
+  deny_action = disconnect
+
+  # Small TTL: long enough to keep a chatty device off the backend, short enough
+  # that a revocation takes effect within a minute.
+  cache {
+    enable = true
+    max_size = 8192
+    ttl = "1m"
+  }
+
+  sources = [
+    {
+      type = file
+      enable = true
+      path = "/opt/emqx/etc/acl.conf"
+    },
+    {
+      type = http
+      enable = true
+      method = post
+      url = "__BACKEND_INTERNAL_URL__/internal/broker/acl"
+      headers {
+        "content-type" = "application/json"
+        "x-broker-secret" = "__BROKER_WEBHOOK_SECRET__"
+      }
+      body {
+        username = "${username}"
+        clientid = "${clientid}"
+        topic = "${topic}"
+        action = "${action}"
+        peerhost = "${peerhost}"
+      }
+      request_timeout = "5s"
+      pool_size = 16
+    }
+  ]
+}
+
+# --------------------------------------------------------------- dashboard --
+# Bound to loopback by the compose port mapping. Reach it over the VPN or an
+# SSH tunnel; it is never published (spec section 16).
+
+dashboard {
+  listeners.http {
+    bind = "0.0.0.0:18083"
+  }
+  default_username = "admin"
+}
+
+# -------------------------------------------------------------- monitoring --
+
+prometheus {
+  enable = true
+  push_gateway_server = ""
+}
+
+# System topics let the backend and Grafana see client connect/disconnect
+# events without polling the dashboard API.
+sys_topics {
+  sys_msg_interval = 60s
+  sys_event_messages {
+    client_connected = true
+    client_disconnected = true
+    client_subscribed = false
+    client_unsubscribed = false
+  }
+}

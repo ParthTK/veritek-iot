@@ -1,0 +1,175 @@
+# Alerting rules (spec section 20).
+#
+# Every threshold that depends on how often meters actually report is written
+# as a rule parameter here rather than compiled into the application, so it can
+# be tuned per estate without a deploy. The gateway-offline rule in particular
+# must be retuned once the real Technode poll interval is known.
+
+groups:
+  - name: veritek-infrastructure
+    rules:
+      - alert: MqttBrokerDown
+        expr: up{job="emqx"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MQTT broker is unreachable"
+          description: "Prometheus cannot scrape EMQX. No gateway can deliver telemetry while this is true."
+
+      - alert: BackendDown
+        expr: up{job="veritek-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is unreachable"
+          description: "The ingestion service is not responding to scrapes."
+
+      - alert: BackendMqttConsumerDisconnected
+        expr: veritek_mqtt_connected == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend MQTT consumer is disconnected"
+          description: >-
+            The broker may be up while the backend is not consuming. Telemetry
+            published in this window is delivered only if the gateway retries.
+
+      - alert: DatabaseUnavailable
+        expr: veritek_database_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database is unreachable"
+          description: "Readings cannot be stored. Raw packets queue in memory and will be lost on restart."
+
+      - alert: TlsCertificateExpiringSoon
+        expr: veritek_tls_certificate_expiry_seconds < 21 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "MQTT TLS certificate expires in under 21 days"
+          description: >-
+            Automated renewal has not replaced the certificate. Every gateway
+            will fail to connect when it expires - check the certbot container.
+
+      - alert: TlsCertificateExpiringCritical
+        expr: veritek_tls_certificate_expiry_seconds < 7 * 24 * 3600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MQTT TLS certificate expires in under 7 days"
+          description: "Renewal has failed. Intervene manually now."
+
+  - name: veritek-ingestion
+    rules:
+      - alert: IngestErrorRateHigh
+        expr: |
+          sum(rate(veritek_ingest_failure_total[5m]))
+            /
+          clamp_min(sum(rate(veritek_ingest_accepted_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of packets are failing to process"
+          description: "Check /api/commissioning/raw for the failing payloads - often a mapping change."
+
+      - alert: MalformedPayloadSpike
+        expr: sum(rate(veritek_ingest_malformed_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Devices are sending payloads that are not valid JSON"
+          description: "A firmware change or a truncating link. The raw bytes are stored for inspection."
+
+      - alert: IngestQueueBacklog
+        expr: veritek_ingest_queue_depth > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingest queue is backing up"
+          description: "Processing is slower than arrival. Check database write latency."
+
+      - alert: ProcessingLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(veritek_ingest_processing_seconds_bucket[5m])) by (le)) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "95th percentile packet processing is over 2 seconds"
+
+  - name: veritek-security
+    rules:
+      - alert: MqttAuthFailureSpike
+        expr: sum(rate(veritek_mqtt_auth_failure_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual rate of rejected MQTT connections"
+          description: >-
+            Either a device has stale credentials after a rotation, or someone
+            is guessing. Check /api/provisioning/auth-events?denied=true.
+
+      - alert: MqttAclDenialSpike
+        expr: sum(rate(veritek_mqtt_acl_deny_total[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Clients are being refused topics they asked for"
+          description: >-
+            A misconfigured gateway publishing to the wrong topic, or an attempt
+            to reach another site's namespace. The events log names the client.
+
+  - name: veritek-devices
+    rules:
+      # Deliberately a rule parameter, not an application constant: the right
+      # threshold depends on the poll interval, which is still unknown.
+      - alert: GatewayStoppedReporting
+        expr: veritek_gateway_last_telemetry_age_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway {{ $labels.gateway_uid }} has not reported for 15 minutes"
+          description: "Cellular outage, power loss, or a meter that stopped answering on RS485."
+
+      - alert: AllGatewaysOffline
+        expr: sum(veritek_gateways_total{status="ONLINE"}) == 0 and sum(veritek_gateways_total) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No gateway is online"
+          description: "A whole-estate outage points at the broker, DNS or the certificate, not at the sites."
+
+  - name: veritek-capacity
+    rules:
+      - alert: DiskFillingUp
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 15% disk free"
+          description: >-
+            Telemetry and raw packets grow steadily. Check RAW_RETENTION_DAYS
+            and the Timescale compression policy. Requires node_exporter.
+
+      - alert: HighMemoryUsage
+        expr: veritek_process_resident_memory_bytes > 1.5e9
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend memory above 1.5 GB"
