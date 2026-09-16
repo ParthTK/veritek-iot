@@ -105,7 +105,10 @@ export class GatewaySimulator {
 
     this.client = mqtt.connect(url, {
       clientId: 'sim-' + this.gatewayUid + '-' + Math.random().toString(36).slice(2, 8),
-      username: this.options.username ?? env.EMBEDDED_BROKER_DEFAULT_USERNAME,
+      // A real gateway authenticates as itself, so the simulator does too.
+      // The shared development username is only the fallback for a local
+      // embedded broker that has no per-device credentials issued.
+      username: this.options.username ?? this.gatewayUid ?? env.EMBEDDED_BROKER_DEFAULT_USERNAME,
       password: this.options.password,
       clean: true,
       reconnectPeriod: 3000,

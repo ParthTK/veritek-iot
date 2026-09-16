@@ -261,7 +261,10 @@ async function main(): Promise<void> {
       active_power_kw: 8.2,
       power_factor: 0.95,
       frequency_hz: 50.01,
-      energy_import_kwh: 20000 + Math.round(Math.random() * 1000),
+      // Fixed, not random: a cumulative register that jumps by a random amount
+      // on every run is read - correctly - as real consumption, and leaves
+      // invented kWh in the staging database.
+      energy_import_kwh: 20000,
     },
   };
 

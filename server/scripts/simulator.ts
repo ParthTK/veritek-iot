@@ -11,6 +11,8 @@ const log = createLogger('simulator:cli');
  *   npm run simulator -- --interval 10 --slaves 1,2,3
  *   npm run simulator -- --transport http
  *   npm run simulator -- --buffer-test          # offline-buffer scenario
+ *   npm run simulator -- --gateway GW-MUM-001 --password '<mqtt password>'
+ *                                               # against a real broker, as that gateway
  *   npm run simulator -- --replay 10 --duplicate
  *
  * Runs against a backend that is already up (`npm run dev` in another shell).
@@ -36,6 +38,7 @@ async function main(): Promise<void> {
     slaveIds: slaves ? slaves.split(',').map(Number).filter(Number.isFinite) : undefined,
     intervalSeconds: flag('interval') ? Number(flag('interval')) : undefined,
     transport: (flag('transport') as 'mqtt' | 'http' | undefined) ?? undefined,
+    username: flag('username'),
     password: flag('password') ?? env.EMBEDDED_BROKER_DEFAULT_PASSWORD,
     deviceToken: flag('token') ?? env.SIMULATOR_DEVICE_TOKEN,
   });

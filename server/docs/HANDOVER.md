@@ -8,18 +8,68 @@ deployment-specific it is marked `<fill in at deployment>`.
 
 ---
 
+## 0. The live deployment
+
+Deployed and verified on Google Cloud. No secret appears below.
+
+| | |
+|---|---|
+| GCP project | `veritek` |
+| Region / zone | `asia-south1` (Mumbai) / `asia-south1-a` - the sites are in India |
+| VM | `veritek-iot-01`, e2-medium (2 vCPU / 4 GB), Debian 12, 30 GB |
+| Static IP | `8.231.120.125` (reserved) |
+| **MQTT endpoint** | **`mqtts://mqtt.8-231-120-125.sslip.io:8883`** |
+| **API + dashboard** | **`https://api.8-231-120-125.sslip.io`** |
+| Commissioning screen | `https://api.8-231-120-125.sslip.io/commissioning` |
+| Admin sign-in | `admin@veritek.local` - password in Secret Manager, see below |
+| Backups | `gs://veritek-iot-backups`, nightly, 30-day lifecycle |
+| Environment | staging (plaintext 1883 open for commissioning) |
+
+### Getting a secret
+
+Every deployment secret lives in Secret Manager, never in git and never in a
+file that leaves the host:
+
+```bash
+gcloud secrets versions access latest --secret=veritek-seed-admin-password --project=veritek
+gcloud secrets list --project=veritek
+```
+
+### About the hostname
+
+`sslip.io` resolves any name containing the dashed IP, which gave us real DNS
+names and a publicly trusted Let's Encrypt certificate without owning a domain.
+It is a stand-in, not a compromise on the principle: devices are still
+configured against a **name**, so moving to `mqtt.energy.<domain>` later is a
+DNS record plus `BASE_DOMAIN` in the bootstrap - no gateway is reconfigured.
+
+Do that before the estate grows: the current name is tied to this IP, so
+replacing the VM would mean re-pointing every device.
+
+### Redeploying
+
+```bash
+gcloud compute ssh veritek-iot-01 --project=veritek --zone=asia-south1-a
+cd /opt/veritek/repo && sudo git fetch origin && sudo git reset --hard origin/main
+sudo bash server/deploy/scripts/gcp-bootstrap.sh
+```
+
+Idempotent: it re-reads secrets, re-renders the broker config, skips the
+certificate while it is still valid, rebuilds the dashboard and restarts only
+what changed.
+
+---
 ## 1. Status
 
 | | |
 |---|---|
-| **Built and tested** | Broker auth/ACL, per-device credentials, device lifecycle, topic architecture, reconnection, observability, alerting, health probes, backups, infrastructure-as-code, all test suites |
-| **Waiting on the cloud account** | Provisioning the VM, DNS records, the certificate, and running the deployment |
+| **Live on Google Cloud** | Broker with TLS and per-device auth/ACL, database, backend, dashboard, monitoring, backups, certificate renewal - all deployed and verified from outside the network |
+| **Verified against the deployment** | Cloud acceptance 14/14, live security 11/11, backup restored to Cloud Storage |
+| **Waiting on a domain** | A real hostname to replace the sslip.io stand-in. One DNS record and one variable |
 | **Waiting on the hardware** | Four questions in section 10 |
 
-Everything in the first row runs and is verified locally today. The second row
-needs credentials for a cloud provider and control of a domain — neither of
-which exists yet, so those values are parameters throughout rather than
-hard-coded anywhere.
+The only thing between this and production traffic is the physical gateway and
+a domain name. Nothing in the first two rows is a plan; it is running.
 
 ---
 
@@ -27,19 +77,22 @@ hard-coded anywhere.
 
 | Item | Value |
 |---|---|
-| Provider | `<fill in at deployment>` |
-| Region | `<fill in — put it near the sites; every reading crosses this link>` |
-| Compute | One Linux host running the Docker Compose stack in `deploy/` |
-| Static IP | `<reserve one — DNS must not have to chase a changing address>` |
+| Provider | Google Cloud, project `veritek` |
+| Region | `asia-south1` (Mumbai) - close to the sites; every reading crosses this link |
+| Compute | `veritek-iot-01`, e2-medium, Debian 12, running the Docker Compose stack |
+| Static IP | `8.231.120.125`, reserved |
+| Service account | `veritek-iot-vm`: read its own secrets, write backups, write logs and metrics. Nothing else |
 | Orchestration | Docker Compose, `restart: unless-stopped` on every service |
-| Deployment | `deploy/docker-compose.prod.yml` + `deploy/env/production.env` |
+| Deployment | `deploy/docker-compose.prod.yml` + `deploy/scripts/gcp-bootstrap.sh` |
 
 **Sizing:** a 2 vCPU / 4 GB host comfortably carries the 100-gateway load test
 (measured below). Revisit past ~500 gateways, or when raw-packet retention grows
 the database beyond the disk.
 
-Services: `emqx`, `timescaledb`, `backend`, `nginx`, `certbot`, `prometheus`,
-`grafana`, `backup`.
+Services: `emqx`, `timescaledb`, `backend`, `nginx`, `prometheus`, `grafana`,
+`node-exporter`. Certificate renewal and backups run as host systemd timers
+rather than containers - both must reload other containers or write to Cloud
+Storage, and giving a container the Docker socket to do that hands it root.
 
 ---
 
@@ -48,10 +101,10 @@ Services: `emqx`, `timescaledb`, `backend`, `nginx`, `certbot`, `prometheus`,
 | Item | Value |
 |---|---|
 | Broker | EMQX 5.8 (chosen over Mosquitto for HTTP auth/ACL, per-connection observability and headroom for more devices) |
-| Hostname | `mqtt.energy.<domain>` — **devices are configured against the name, never an IP** |
+| Hostname | `mqtt.8-231-120-125.sslip.io` today; `mqtt.energy.<domain>` once a domain exists — **devices are configured against the name, never an IP** |
 | Staging hostname | `mqtt-staging.energy.<domain>` |
 | TLS port | **8883 — the production endpoint** |
-| Plaintext port | 1883 — commissioning window only, closed by default |
+| Plaintext port | 1883 — currently OPEN on staging for commissioning. Close it once the unit is confirmed on 8883 |
 | MQTT version | 3.1.1 and 5.0 both accepted; the unit's support is unconfirmed |
 | QoS | 1 (at-least-once). Duplicates are expected and are deduplicated in the application |
 | Retain | telemetry `false`; status retained; **commands never retained** |
@@ -186,6 +239,9 @@ All run on 2026-09-16. Raw output in [`docs/test-results/`](test-results/).
 | Failure and recovery | **19/19** | All ten scenarios recovered with no intervention |
 | Load — 10 gateways | HEALTHY | 10/10 connected, 4.0 msg/s, publish p95 3 ms, 0 failures |
 | Load — 100 gateways | HEALTHY | 100/100 connected in 10 s, 20 msg/s sustained, publish p95 2 ms, 0 failures |
+| **Cloud acceptance (public internet)** | **14/14** | DNS, TLS, auth, ACL, publish, store, API, live stream - run from a laptop outside the network |
+| **Live security (cloud EMQX)** | **11/11** | Real MQTT connections against the deployed broker, credentials provisioned through the API |
+| **Backup** | PASS | pg_dump uploaded to `gs://veritek-iot-backups` |
 
 ### Security results (live broker)
 
@@ -215,11 +271,10 @@ restart.
 
 | Test | Why |
 |---|---|
-| 500-gateway load | Meaningful only against real cloud hardware |
-| External-internet acceptance | Needs the deployment. `npm run verify:cloud` is written and waiting |
-| Mobile-network acceptance | Same script with `--network "mobile hotspot"` |
-| Live security against EMQX | Passed against the embedded broker, which uses the same credential table and ACL logic. Re-run with `--live` against staging |
-| Backup restore | Needs a real Postgres instance |
+| 500-gateway load | Not yet run against the cloud host. `npm run test:load -- --gateways 500 --host mqtt.8-231-120-125.sslip.io --tls` |
+| Mobile-network acceptance | Needs a phone hotspot: `npm run verify:cloud -- ... --network "mobile hotspot"`. Everything else about the run is identical |
+| Backup restore drill | A backup exists and uploads; restoring it into a throwaway database has not been exercised on this host |
+| Dashboard UI review | The dashboard is wired to the live API and serving, but nobody has clicked through every screen in a browser |
 
 ---
 
