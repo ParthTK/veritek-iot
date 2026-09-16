@@ -132,6 +132,9 @@ sed \
   -e "s|__BACKEND_INTERNAL_URL__|http://backend:4000|g" \
   -e "s|__MQTT_PUBLIC_HOST__|$MQTT_HOST_NAME|g" \
   "$DEPLOY_DIR/emqx/etc/emqx.conf.template" > "$DEPLOY_DIR/emqx/etc/emqx.conf"
+# EMQX runs as uid 1000 inside its container and must be able to read its own
+# config; 640 owned by root would leave it unreadable and the broker crash-looping.
+chown 1000:1000 "$DEPLOY_DIR/emqx/etc/emqx.conf"
 chmod 640 "$DEPLOY_DIR/emqx/etc/emqx.conf"
 
 # ------------------------------------------------------------ 4. certificate --
