@@ -284,7 +284,17 @@ log "timers installed: $(systemctl list-timers --no-pager 'veritek-*' 2>/dev/nul
 log "building the dashboard"
 FRONTEND_DIR="$(dirname "$REPO_DIR")"
 if [ -f "$FRONTEND_DIR/package.json" ]; then
-  docker run --rm \n    -v "$FRONTEND_DIR:/app" -w /app \n    -e npm_config_cache=/tmp/.npm \n    node:22-alpine sh -c "npm ci --no-audit --no-fund && npm run build" \n    && rm -rf "$DEPLOY_DIR/dashboard" \n    && cp -r "$FRONTEND_DIR/dist" "$DEPLOY_DIR/dashboard" \n    && log "dashboard built" \n    || log "WARNING: dashboard build failed; nginx will serve whatever is already there"
+  if docker run --rm \
+      -v "$FRONTEND_DIR:/app" -w /app \
+      -e npm_config_cache=/tmp/.npm \
+      node:22-alpine sh -c "npm ci --no-audit --no-fund && npm run build"
+  then
+    rm -rf "$DEPLOY_DIR/dashboard"
+    cp -r "$FRONTEND_DIR/dist" "$DEPLOY_DIR/dashboard"
+    log "dashboard built"
+  else
+    log "WARNING: dashboard build failed; nginx will keep serving the previous build"
+  fi
 else
   log "no frontend package.json found; skipping the dashboard build"
 fi
