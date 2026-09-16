@@ -25,7 +25,7 @@ import {
   siteName,
 } from '@/services';
 import { useDeviceSelection } from '@/hooks/useDeviceSelection';
-import { useStore } from '@/hooks/useStore';
+import { useStore, useStoreVersion } from '@/hooks/useStore';
 import { useToast } from '@/hooks/useToast';
 import { formatCurrency, formatDateOnly, formatDateTime, formatNumber } from '@/utils/format';
 import { downloadCsv, downloadPdfStub } from '@/utils/csv';
@@ -62,7 +62,8 @@ export function ReportsPage() {
   const { toast } = useToast();
 
   const device = deviceId ? getDevice(deviceId) : undefined;
-  const meters = useMemo(() => listMeters(deviceId ?? undefined), [deviceId]);
+  const dataVersion = useStoreVersion();
+  const meters = useMemo(() => listMeters(deviceId ?? undefined), [deviceId, dataVersion]);
   const meter = meters[0];
 
   const [range, setRange] = useState<RangeKey>('last30d');
@@ -79,7 +80,7 @@ export function ReportsPage() {
       ? `${formatDateOnly(customFrom)} to ${formatDateOnly(customTo)}`
       : (RANGES.find((r) => r.key === range)?.label ?? '');
 
-  const readings = useMemo(() => (meter ? listReadings(meter.id) : []), [meter]);
+  const readings = useMemo(() => (meter ? listReadings(meter.id) : []), [meter, dataVersion]);
 
   const totalKwh = useMemo(
     () => readings.reduce((sum, r) => sum + (totalPower(r) * 3) / 60, 0),

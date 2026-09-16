@@ -13,11 +13,16 @@ export function useStore<T>(selector: (state: ReturnType<typeof getState>) => T)
   );
 }
 
-/** Bumps whenever anything in the store changes; useful for derived reads. */
+/**
+ * Bumps on every store change, including data arriving from the backend.
+ *
+ * Views that memoise a derived read should depend on this, otherwise they keep
+ * showing the empty first render after live data lands.
+ */
 export function useStoreVersion(): number {
   return useSyncExternalStore(
     subscribe,
-    () => getState().devices.length + getState().alerts.length + getState().users.length,
+    () => getState().version,
     () => 0,
   );
 }

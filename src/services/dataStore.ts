@@ -11,6 +11,7 @@ import type {
   Alert,
   AlertTrigger,
   Device,
+  Reading,
   GeneralSettings,
   Meter,
   NotificationSettings,
@@ -39,6 +40,12 @@ migrateStoreIfStale();
 interface StoreShape {
   devices: Device[];
   meters: Meter[];
+  /** Per-meter history, filled from the backend. Not persisted: it is live data. */
+  readings: Record<string, Reading[]>;
+  /** Bumped on every store change, so a useMemo can depend on freshness. */
+  version: number;
+  /** True once the backend has answered at least once. */
+  liveDataLoaded: boolean;
   users: User[];
   alerts: Alert[];
   triggers: AlertTrigger[];
@@ -55,6 +62,9 @@ function loadState(): StoreShape {
     triggers: readStore(STORAGE_KEYS.triggers, ALERT_TRIGGERS),
     notifications: readStore(STORAGE_KEYS.notifications, NOTIFICATION_SETTINGS),
     general: readStore(STORAGE_KEYS.general, GENERAL_SETTINGS),
+    readings: {},
+    version: 0,
+    liveDataLoaded: false,
   };
 }
 
@@ -69,6 +79,7 @@ export function subscribe(listener: Listener): () => void {
 }
 
 function emit(): void {
+  state = { ...state, version: state.version + 1 };
   listeners.forEach((l) => l());
 }
 
@@ -115,6 +126,18 @@ export function setNotifications(notifications: NotificationSettings): void {
 export function setGeneral(general: GeneralSettings): void {
   state = { ...state, general };
   writeStore(STORAGE_KEYS.general, general);
+  emit();
+}
+
+/** Replace the device and meter lists with what the backend reports. */
+export function setLiveDevicesAndMeters(devices: Device[], meters: Meter[]): void {
+  state = { ...state, devices, meters, liveDataLoaded: true };
+  emit();
+}
+
+/** Cache one meter's history. */
+export function setReadings(meterId: string, readings: Reading[]): void {
+  state = { ...state, readings: { ...state.readings, [meterId]: readings } };
   emit();
 }
 

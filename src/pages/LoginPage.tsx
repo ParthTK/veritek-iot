@@ -4,7 +4,6 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { AlertCircle, ChevronLeft, Eye, EyeOff } from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 import { useAuth } from '@/hooks/useAuth';
-import { DEMO_CREDENTIALS } from '@/data/seed';
 import { cn } from '@/utils/cn';
 
 import loginHero from '@/assets/login-hero.jpg';
@@ -27,7 +26,7 @@ export function LoginPage() {
   const { isAuthenticated, signIn } = useAuth();
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState(DEMO_CREDENTIALS.email);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(true);
@@ -61,7 +60,7 @@ export function LoginPage() {
 
   const unavailable = (what: string) => () => {
     setError(null);
-    setNotice(`${what} is not available in this demo. Use the credentials shown below.`);
+    setNotice(`${what} is not available yet. Ask an administrator to issue an account.`);
   };
 
   return (
@@ -248,9 +247,10 @@ export function LoginPage() {
             </div>
 
             <div className="mt-5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-              <p className="text-theme-2xs font-medium text-gray-600">Demo credentials</p>
+              <p className="text-theme-2xs font-medium text-gray-600">Signing in</p>
               <p className="mt-0.5 text-theme-2xs text-gray-500">
-                {DEMO_CREDENTIALS.email} · {DEMO_CREDENTIALS.password}
+                Use the account issued for this deployment. Ask an administrator
+                if you do not have one.
               </p>
             </div>
           </div>

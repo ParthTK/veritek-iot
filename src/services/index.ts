@@ -1,10 +1,4 @@
-import { DEMO_CREDENTIALS, DIAGNOSTIC_EVENTS, SITES } from '@/data/seed';
-import {
-  dailyBuckets,
-  generateReadings,
-  hourlyBuckets,
-  sortByTimeDesc,
-} from '@/data/readings';
+import { DIAGNOSTIC_EVENTS, SITES } from '@/data/seed';
 import type {
   Alert,
   AlertStatus,
@@ -20,10 +14,24 @@ import type {
 } from '@/types';
 import { STORAGE_KEYS, readStore, removeStore, writeStore } from './storage';
 import {
+  ApiError,
+  apiLogin,
+  apiLogout,
+  fetchAlerts,
+  fetchBuckets,
+  fetchDevicesAndMeters,
+  fetchReadings,
+  getToken,
+  openTelemetryStream,
+  updateAlertStatus,
+} from './api';
+import {
   getState,
   setAlerts,
   setDevices,
+  setLiveDevicesAndMeters,
   setMeters,
+  setReadings,
   setTriggers,
   setUsers,
 } from './dataStore';
@@ -45,29 +53,32 @@ export interface LoginResult {
 }
 
 /**
- * Mock sign-in. Accepts the demo credentials, or any known user's email with
- * the demo password, so the role-based views can be explored.
+ * Sign in against the backend.
+ *
+ * The response carries a JWT, which api.ts stores and attaches to every later
+ * request. A failure is reported with the same wording for every cause, so the
+ * form cannot be used to discover which addresses have accounts.
  */
 export async function login(email: string, password: string): Promise<LoginResult> {
-  // A short delay so the button's loading state is actually visible.
-  await new Promise((resolve) => setTimeout(resolve, 700));
-
-  const trimmed = email.trim().toLowerCase();
-  const user = getState().users.find((u) => u.email.toLowerCase() === trimmed);
-
-  if (!user) {
-    return { ok: false, error: 'No account found for that email address.' };
+  try {
+    const user = await apiLogin(email.trim(), password);
+    const session: Session = { user, loginAt: new Date().toISOString() };
+    writeStore(STORAGE_KEYS.session, session);
+    // Pull the estate immediately so the first screen after sign-in has data.
+    void refreshLiveData();
+    return { ok: true, session };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      return { ok: false, error: 'Incorrect email or password. Please try again.' };
+    }
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? 'Could not reach the server: ' + error.message
+          : 'Could not reach the server.',
+    };
   }
-  if (password !== DEMO_CREDENTIALS.password) {
-    return { ok: false, error: 'Incorrect email or password. Please try again.' };
-  }
-  if (!user.active) {
-    return { ok: false, error: 'This account has been deactivated. Contact your administrator.' };
-  }
-
-  const session: Session = { user, loginAt: new Date().toISOString() };
-  writeStore(STORAGE_KEYS.session, session);
-  return { ok: true, session };
 }
 
 export function getSession(): Session | null {
@@ -75,6 +86,8 @@ export function getSession(): Session | null {
 }
 
 export function logout(): void {
+  apiLogout();
+  stopLiveUpdates();
   removeStore(STORAGE_KEYS.session);
   removeStore(STORAGE_KEYS.selectedDevice);
 }
@@ -154,22 +167,38 @@ export function getMeter(id: string): Meter | undefined {
 /* -------------------------------------------------------------- readings -- */
 
 /**
- * Reading history is derived, not stored: regenerating from a per-meter seed
- * keeps localStorage small and the series identical between sessions. Results
- * are memoised because the charts ask for them on every render.
+ * Reading history comes from the backend.
+ *
+ * The accessors stay synchronous so no component had to change: they return
+ * whatever is cached in the store, and kick off a fetch when it is missing or
+ * stale. The fetch writes into the store, which notifies subscribers, and the
+ * views re-render with real data.
  */
-const readingCache = new Map<string, Reading[]>();
+const READING_TTL_MS = 30_000;
+const readingFetchedAt = new Map<string, number>();
+const inFlight = new Set<string>();
+
+function ensureReadings(meterId: string): void {
+  const last = readingFetchedAt.get(meterId) ?? 0;
+  if (inFlight.has(meterId) || Date.now() - last < READING_TTL_MS) return;
+
+  inFlight.add(meterId);
+  const meter = getMeter(meterId);
+  void fetchReadings(meterId, meter?.deviceId ?? '')
+    .then((rows) => {
+      readingFetchedAt.set(meterId, Date.now());
+      setReadings(meterId, rows);
+    })
+    .catch(() => {
+      // Leave the cache alone on failure; the next render retries after the TTL.
+      readingFetchedAt.set(meterId, Date.now());
+    })
+    .finally(() => inFlight.delete(meterId));
+}
 
 export function listReadings(meterId: string): Reading[] {
-  const cached = readingCache.get(meterId);
-  if (cached) return cached;
-
-  const meter = getMeter(meterId);
-  if (!meter) return [];
-
-  const rows = sortByTimeDesc(generateReadings(meter));
-  readingCache.set(meterId, rows);
-  return rows;
+  ensureReadings(meterId);
+  return getState().readings[meterId] ?? [];
 }
 
 export function latestReading(meterId: string): Reading | undefined {
@@ -192,14 +221,48 @@ export function listAllReadings(): Reading[] {
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 }
 
+/* Consumption buckets are computed by the backend - it owns the end-minus-start
+   arithmetic, including counter rollovers and meter resets. */
+const bucketCache = new Map<string, ConsumptionBucket[]>();
+const bucketFetchedAt = new Map<string, number>();
+const bucketInFlight = new Set<string>();
+
+function ensureBuckets(
+  key: string,
+  meterId: string,
+  interval: '1h' | '1d',
+  from: string,
+  labelFor: (at: string) => string,
+): void {
+  const last = bucketFetchedAt.get(key) ?? 0;
+  if (bucketInFlight.has(key) || Date.now() - last < READING_TTL_MS) return;
+
+  bucketInFlight.add(key);
+  void fetchBuckets(meterId, interval, from, labelFor)
+    .then((rows) => {
+      bucketCache.set(key, rows);
+      bucketFetchedAt.set(key, Date.now());
+      // Nudge subscribers so views holding the old buckets re-render.
+      setReadings(meterId, getState().readings[meterId] ?? []);
+    })
+    .catch(() => bucketFetchedAt.set(key, Date.now()))
+    .finally(() => bucketInFlight.delete(key));
+}
+
 export function getHourlyBuckets(meterId: string): ConsumptionBucket[] {
-  return hourlyBuckets(listReadings(meterId));
+  const key = meterId + '|1h';
+  ensureBuckets(key, meterId, '1h', '-24h', (at) =>
+    new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  );
+  return bucketCache.get(key) ?? [];
 }
 
 export function getDailyBuckets(meterId: string, days = 7): ConsumptionBucket[] {
-  const meter = getMeter(meterId);
-  if (!meter) return [];
-  return dailyBuckets(meter, listReadings(meterId), days);
+  const key = meterId + '|1d|' + days;
+  ensureBuckets(key, meterId, '1d', '-' + days + 'd', (at) =>
+    new Date(at).toLocaleDateString([], { day: '2-digit', month: 'short' }),
+  );
+  return bucketCache.get(key) ?? [];
 }
 
 /* ---------------------------------------------------------------- alerts -- */
@@ -211,6 +274,7 @@ export function listAlerts(): Alert[] {
 }
 
 export function setAlertStatus(id: string, status: AlertStatus): void {
+  // Optimistic: update locally so the row reacts immediately, then persist.
   const now = new Date().toISOString();
   setAlerts(
     getState().alerts.map((a) => {
@@ -222,6 +286,14 @@ export function setAlertStatus(id: string, status: AlertStatus): void {
       return { ...a, status };
     }),
   );
+
+  if (status === 'acknowledged' || status === 'resolved') {
+    void updateAlertStatus(id, status)
+      // Re-read from the backend so the row reflects what was actually stored,
+      // including a rejection we optimistically showed as applied.
+      .then(() => refreshAlerts())
+      .catch(() => refreshAlerts());
+  }
 }
 
 export function listTriggers(meterId?: string): AlertTrigger[] {
@@ -275,4 +347,76 @@ export function toggleUserActive(id: string): void {
 
 export function createUserId(): string {
   return `usr-${Date.now().toString(36).slice(-6)}`;
+}
+
+/* ------------------------------------------------------------ live data -- */
+
+/**
+ * Pull the estate from the backend into the store.
+ *
+ * Called after sign-in, on app start when a token is already held, and whenever
+ * the live stream reports something changed.
+ */
+export async function refreshLiveData(): Promise<void> {
+  if (!getToken()) return;
+  try {
+    const { devices, meters } = await fetchDevicesAndMeters();
+    setLiveDevicesAndMeters(devices, meters);
+  } catch {
+    // Offline or signed out. The last known estate stays on screen rather than
+    // the dashboard emptying itself.
+  }
+  await refreshAlerts();
+}
+
+export async function refreshAlerts(): Promise<void> {
+  if (!getToken()) return;
+  try {
+    setAlerts(await fetchAlerts());
+  } catch {
+    /* keep what we have */
+  }
+}
+
+let stopStream: (() => void) | null = null;
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let pendingRefresh: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Start following the backend: server-sent events for immediate updates, plus a
+ * slow poll so a dropped stream cannot leave the dashboard silently stale.
+ */
+export function startLiveUpdates(): void {
+  if (!getToken() || stopStream) return;
+
+  void refreshLiveData();
+
+  stopStream = openTelemetryStream(() => {
+    // A busy site emits many readings a second; coalesce them into one refresh.
+    if (pendingRefresh) clearTimeout(pendingRefresh);
+    pendingRefresh = setTimeout(() => {
+      readingFetchedAt.clear();
+      bucketFetchedAt.clear();
+      void refreshLiveData();
+    }, 1000);
+  });
+
+  refreshTimer = setInterval(() => void refreshLiveData(), 60_000);
+}
+
+export function stopLiveUpdates(): void {
+  stopStream?.();
+  stopStream = null;
+  if (refreshTimer) clearInterval(refreshTimer);
+  if (pendingRefresh) clearTimeout(pendingRefresh);
+  refreshTimer = null;
+  pendingRefresh = null;
+  readingFetchedAt.clear();
+  bucketFetchedAt.clear();
+  bucketCache.clear();
+}
+
+/** True once the backend has answered at least once. */
+export function isLiveDataLoaded(): boolean {
+  return getState().liveDataLoaded;
 }

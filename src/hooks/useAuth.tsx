@@ -1,10 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Session, User } from '@/types';
 import {
   getSession,
   login as loginService,
   logout as logoutService,
+  startLiveUpdates,
+  stopLiveUpdates,
   updateSessionUser,
 } from '@/services';
 
@@ -21,6 +23,17 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => getSession());
+
+  // Follow the backend only while signed in: the stream carries live readings
+  // and a slow poll behind it covers a dropped connection.
+  useEffect(() => {
+    if (!session) {
+      stopLiveUpdates();
+      return undefined;
+    }
+    startLiveUpdates();
+    return () => stopLiveUpdates();
+  }, [session]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await loginService(email, password);

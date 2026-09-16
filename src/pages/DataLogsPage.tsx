@@ -16,7 +16,7 @@ import {
   siteName,
 } from '@/services';
 import { useDeviceSelection } from '@/hooks/useDeviceSelection';
-import { useStore } from '@/hooks/useStore';
+import { useStore, useStoreVersion } from '@/hooks/useStore';
 import type { Reading } from '@/types';
 import { formatDateTime, formatNumber, toInputDate } from '@/utils/format';
 import { downloadCsv, downloadPdfStub } from '@/utils/csv';
@@ -34,7 +34,8 @@ export function DataLogsPage() {
   const { toast } = useToast();
 
   const device = deviceId ? getDevice(deviceId) : undefined;
-  const meters = useMemo(() => listMeters(deviceId ?? undefined), [deviceId]);
+  const dataVersion = useStoreVersion();
+  const meters = useMemo(() => listMeters(deviceId ?? undefined), [deviceId, dataVersion]);
 
   const [meterId, setMeterId] = useState<string>('all');
   const [query, setQuery] = useState('');

@@ -7,6 +7,7 @@ import { getDevice, getMeter, listReadings } from '@/services';
 import type { Meter, Reading } from '@/types';
 import { useDeviceSelection } from '@/hooks/useDeviceSelection';
 import { cn } from '@/utils/cn';
+import { useStoreVersion } from '@/hooks/useStore';
 
 export interface MeterContext {
   meter: Meter;
@@ -34,7 +35,8 @@ export function MeterDetailPage() {
   const { selectDevice } = useDeviceSelection();
 
   const meter = getMeter(meterId);
-  const readings = useMemo(() => (meter ? listReadings(meter.id) : []), [meter]);
+  const dataVersion = useStoreVersion();
+  const readings = useMemo(() => (meter ? listReadings(meter.id) : []), [meter, dataVersion]);
 
   useEffect(() => {
     if (meter) selectDevice(meter.deviceId);

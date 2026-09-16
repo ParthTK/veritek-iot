@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/useToast';
 import { downloadCsv } from '@/utils/csv';
 import { formatDateTime } from '@/utils/format';
 import { cn } from '@/utils/cn';
+import { useStoreVersion } from '@/hooks/useStore';
 
 type Preset = 'today' | 'yesterday' | 'last7d' | 'last30d' | 'custom';
 
@@ -35,7 +36,8 @@ export function DataChartsPage() {
   const { toast } = useToast();
 
   const device = deviceId ? getDevice(deviceId) : undefined;
-  const meters = useMemo(() => listMeters(deviceId ?? undefined), [deviceId]);
+  const dataVersion = useStoreVersion();
+  const meters = useMemo(() => listMeters(deviceId ?? undefined), [deviceId, dataVersion]);
 
   const [meterId, setMeterId] = useState<string>(meters[0]?.id ?? '');
   const [preset, setPreset] = useState<Preset>('today');
@@ -48,7 +50,7 @@ export function DataChartsPage() {
   const activeMeterId = meterId || meters[0]?.id || '';
   const readings = useMemo(
     () => (activeMeterId ? listReadings(activeMeterId) : []),
-    [activeMeterId],
+    [activeMeterId, dataVersion],
   );
 
   /** Applies the selected period to the reading history. */

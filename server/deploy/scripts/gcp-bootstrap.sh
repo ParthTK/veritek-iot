@@ -277,7 +277,19 @@ write_timer veritek-cert-renew "VERITEK TLS certificate renewal" "*-*-* 03,15:17
 write_timer veritek-backup "VERITEK database backup" "*-*-* 02:30:00" /usr/local/bin/veritek-backup.sh
 log "timers installed: $(systemctl list-timers --no-pager 'veritek-*' 2>/dev/null | grep -c veritek || echo 0)"
 
-# -------------------------------------------------------------- 6. the stack --
+# ---------------------------------------------------------- 6. dashboard --
+
+# Built here rather than committed: a bundle in git goes stale the moment the
+# source changes, and nginx serves it as plain static files.
+log "building the dashboard"
+FRONTEND_DIR="$(dirname "$REPO_DIR")"
+if [ -f "$FRONTEND_DIR/package.json" ]; then
+  docker run --rm \n    -v "$FRONTEND_DIR:/app" -w /app \n    -e npm_config_cache=/tmp/.npm \n    node:22-alpine sh -c "npm ci --no-audit --no-fund && npm run build" \n    && rm -rf "$DEPLOY_DIR/dashboard" \n    && cp -r "$FRONTEND_DIR/dist" "$DEPLOY_DIR/dashboard" \n    && log "dashboard built" \n    || log "WARNING: dashboard build failed; nginx will serve whatever is already there"
+else
+  log "no frontend package.json found; skipping the dashboard build"
+fi
+
+# -------------------------------------------------------------- 7. the stack --
 
 log "building and starting the stack"
 $COMPOSE up -d --build

@@ -10,6 +10,7 @@ import { getDailyBuckets, getHourlyBuckets } from '@/services';
 import { useToast } from '@/hooks/useToast';
 import { formatNumber } from '@/utils/format';
 import { downloadCsv } from '@/utils/csv';
+import { useStoreVersion } from '@/hooks/useStore';
 
 type SortMode = 'chronological' | 'highest' | 'lowest';
 
@@ -25,8 +26,9 @@ export function EnergyTab() {
   const [sort, setSort] = useState<SortMode>('chronological');
 
   const hourly = getHourlyBuckets(meter.id);
-  const daily = useMemo(() => getDailyBuckets(meter.id, days), [meter.id, days]);
-  const previous = useMemo(() => getDailyBuckets(meter.id, days * 2), [meter.id, days]);
+  const dataVersion = useStoreVersion();
+  const daily = useMemo(() => getDailyBuckets(meter.id, days), [meter.id, days, dataVersion]);
+  const previous = useMemo(() => getDailyBuckets(meter.id, days * 2), [meter.id, days, dataVersion]);
 
   const sortedDaily = useMemo(() => {
     if (sort === 'highest') return [...daily].sort((a, b) => b.kwh - a.kwh);
