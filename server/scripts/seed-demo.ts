@@ -18,6 +18,7 @@
  *
  *   npm run seed:demo -- --days 30 --interval 15 --purge-test
  *   npm run seed:demo -- --live            # then keep appending, forever
+ *   npm run seed:demo -- --reset           # discard and regenerate the history
  *
  * `--live` matters because a gateway's badge is computed from how long it has
  * been silent. Seeded history alone goes DEGRADED after five minutes and
@@ -38,6 +39,7 @@ import { markDirty } from '../src/db/repositories/rollups.js';
 import { upsertSite } from '../src/db/repositories/sites.js';
 import { insertTelemetry, latestByMeter, type TelemetryInsert } from '../src/db/repositories/telemetry.js';
 import { AGGREGATION_BUCKETS, flushAggregation } from '../src/iot/telemetry/aggregation.js';
+import { evaluateAbsenceRules, evaluateTelemetry } from '../src/iot/alerts/engine.js';
 import { METRIC_CATALOG } from '../src/config/metricCatalog.js';
 import { bucketStart } from '../src/core/time.js';
 
@@ -219,14 +221,23 @@ function readingAt(
   const kva = kw / pf;
   const kvar = Math.sqrt(Math.max(0, kva * kva - kw * kw));
 
-  // Supply voltage sags slightly under load, as it does in a real installation.
-  const vBase = 415 - 6 * factor + 4 * noise(seed + 13);
-  const v1 = vBase + 1.4 * noise(seed + 17);
-  const v2 = vBase + 1.4 * noise(seed + 19);
-  const v3 = vBase + 1.4 * noise(seed + 23);
+  // A 415 V three-phase supply, sagging slightly under load as a real one does.
+  // 415 V is the line-to-line figure; phase-to-neutral is that over root three,
+  // about 240 V. Both are reported, because they are different metrics: putting
+  // the line voltage into voltage_l1 (which is L1-N) would read as a permanent
+  // 80% over-voltage and trip the over-voltage rule on every single sample.
+  const vLineBase = 415 - 6 * factor + 4 * noise(seed + 13);
+  const vLine12 = vLineBase + 1.4 * noise(seed + 17);
+  const vLine23 = vLineBase + 1.4 * noise(seed + 19);
+  const vLine31 = vLineBase + 1.4 * noise(seed + 23);
+  const vLineAvg = (vLine12 + vLine23 + vLine31) / 3;
+
+  const v1 = vLine12 / Math.sqrt(3);
+  const v2 = vLine23 / Math.sqrt(3);
+  const v3 = vLine31 / Math.sqrt(3);
   const vAvg = (v1 + v2 + v3) / 3;
 
-  const aTotal = (kva * 1000) / (Math.sqrt(3) * vAvg);
+  const aTotal = (kva * 1000) / (Math.sqrt(3) * vLineAvg);
   const a1 = aTotal * (1 + 0.03 * noise(seed + 29));
   const a2 = aTotal * (1 + 0.03 * noise(seed + 31));
   const a3 = aTotal * (1 + 0.03 * noise(seed + 37));
@@ -238,6 +249,9 @@ function readingAt(
     { metric: 'voltage_l2', value: round(v2, 1), unit: 'V' },
     { metric: 'voltage_l3', value: round(v3, 1), unit: 'V' },
     { metric: 'voltage_avg', value: round(vAvg, 1), unit: 'V' },
+    { metric: 'voltage_l12', value: round(vLine12, 1), unit: 'V' },
+    { metric: 'voltage_l23', value: round(vLine23, 1), unit: 'V' },
+    { metric: 'voltage_l31', value: round(vLine31, 1), unit: 'V' },
     { metric: 'current_l1', value: round(a1, 2), unit: 'A' },
     { metric: 'current_l2', value: round(a2, 2), unit: 'A' },
     { metric: 'current_l3', value: round(a3, 2), unit: 'A' },
@@ -245,7 +259,13 @@ function readingAt(
     { metric: 'active_power_kw', value: round(kw, 3), unit: 'kW' },
     { metric: 'reactive_power_kvar', value: round(kvar, 3), unit: 'kVAr' },
     { metric: 'apparent_power_kva', value: round(kva, 3), unit: 'kVA' },
+    { metric: 'active_power_l1_kw', value: round((kw * a1) / (a1 + a2 + a3), 3), unit: 'kW' },
+    { metric: 'active_power_l2_kw', value: round((kw * a2) / (a1 + a2 + a3), 3), unit: 'kW' },
+    { metric: 'active_power_l3_kw', value: round((kw * a3) / (a1 + a2 + a3), 3), unit: 'kW' },
     { metric: 'power_factor', value: round(pf, 3), unit: null },
+    { metric: 'power_factor_l1', value: round(Math.min(0.99, pf + 0.012 * noise(seed + 43)), 3), unit: null },
+    { metric: 'power_factor_l2', value: round(Math.min(0.99, pf + 0.012 * noise(seed + 47)), 3), unit: null },
+    { metric: 'power_factor_l3', value: round(Math.min(0.99, pf + 0.012 * noise(seed + 53)), 3), unit: null },
     { metric: 'frequency_hz', value: round(50 + 0.08 * noise(seed + 41), 2), unit: 'Hz' },
     { metric: 'energy_import_kwh', value: round(kwhCounter, 3), unit: 'kWh' },
     { metric: 'apparent_energy_kvah', value: round(kwhCounter / pf, 3), unit: 'kVAh' },
@@ -272,6 +292,9 @@ async function tick(meterIds: Map<string, string>): Promise<void> {
     const flat = gateway.uid === 'GW-XYZ-0001';
     const at = new Date(now.getTime() - gateway.staleMinutes * 60_000);
     const iso = at.toISOString();
+
+    const persisted = await getGatewayByUid(gateway.uid);
+    if (!persisted) continue;
 
     for (const meter of gateway.meters) {
       const meterId = meterIds.get(gateway.uid + ':' + meter.slaveId);
@@ -305,16 +328,41 @@ async function tick(meterIds: Map<string, string>): Promise<void> {
         bucket, meterId, bucketStart: bucketStart(iso, bucket, env.DEFAULT_SITE_TIMEZONE).toISOString(),
       })));
       await touchMeterData(meterId, iso);
+
+      // Writing straight to the table bypasses the ingestion pipeline, and with
+      // it the alert engine. Without this the alerts page stays empty forever,
+      // however far out of range the readings drift.
+      await evaluateTelemetry({
+        gatewayId: persisted.id,
+        gatewayUid: gateway.uid,
+        meterId,
+        meterUid: gateway.uid + ':' + meter.slaveId,
+        siteId: gateway.siteId,
+        slaveId: meter.slaveId,
+        timestamp: iso,
+        sourceTimestamp: iso,
+        serverReceivedAt: iso,
+        source: 'demo',
+        isBuffered: false,
+        lagSeconds: 0,
+        measurements: Object.fromEntries(samples.map((row) => [row.metric, row.value])),
+        samples: samples.map((row) => ({
+          metric: row.metric, value: row.value, unit: row.unit, quality: 'GOOD' as const,
+        })),
+        fingerprint: '',
+        unmappedKeys: [],
+      });
     }
 
-    const persisted = await getGatewayByUid(gateway.uid);
-    if (!persisted) continue;
     await touchGatewaySeen(persisted.id, iso);
     await touchGatewayData(persisted.id, iso);
     await setGatewayStatus(persisted.id, gateway.status);
   }
 
   await flushAggregation(5000);
+  // Closes the loop on the offline gateway: a no-data rule only fires when
+  // something asks whether the data stopped.
+  await evaluateAbsenceRules();
 }
 
 /**
@@ -340,6 +388,7 @@ async function run(): Promise<void> {
   const days = Math.max(1, Math.min(365, Number(flag('days', '30'))));
   const intervalMinutes = Math.max(1, Math.min(60, Number(flag('interval', '15'))));
   const purgeTest = process.argv.includes('--purge-test');
+  const reset = process.argv.includes('--reset');
 
   const database = await connectDb();
   await migrate(database);
@@ -392,6 +441,15 @@ async function run(): Promise<void> {
   });
 
   /* --------------------------------------------------------- telemetry -- */
+  // Re-running is normally a no-op: (meter, metric, time) is the primary key
+  // and the insert is ON CONFLICT DO NOTHING, which is what makes the loader
+  // safe to repeat. That also means a corrected generator cannot overwrite
+  // history it previously got wrong, so regenerating has to be asked for.
+  if (reset) {
+    for (const meterId of meterIds.values()) await purgeMeterData(meterId);
+    log.info('existing demo history discarded', { meters: meterIds.size });
+  }
+
   const stepMs = intervalMinutes * 60_000;
   const dirty: Array<{ bucket: (typeof AGGREGATION_BUCKETS)[number]; meterId: string; bucketStart: string }> = [];
   let written = 0;
