@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   const provisioned = await provisionGateway({
     gatewayUid,
     name: 'E2E verification gateway',
-    siteId: 'site-onida',
+    siteId: 'site-abc',
     hardwareModel: 'SIMULATOR',
     environment: 'staging',
     meters: [{ slaveId: 1 }, { slaveId: 2 }],
@@ -333,10 +333,10 @@ async function main(): Promise<void> {
   const points = (meterHistory.body.points as unknown[]) ?? [];
   check('GET /api/meters/:id/history', meterHistory.status === 200 && points.length > 0, points.length + ' buckets');
 
-  const siteLive = await get('/api/sites/site-onida/energy/live');
+  const siteLive = await get('/api/sites/site-abc/energy/live');
   check('GET /api/sites/:id/energy/live', siteLive.status === 200, ((siteLive.body.meters as unknown[]) ?? []).length + ' meters');
 
-  const siteHistory = await get('/api/sites/site-onida/energy/history?from=-2h&to=now&interval=15m');
+  const siteHistory = await get('/api/sites/site-abc/energy/history?from=-2h&to=now&interval=15m');
   check('GET /api/sites/:id/energy/history', siteHistory.status === 200);
 
   const gatewayStatus = await get('/api/gateways/' + gateway.id + '/status');

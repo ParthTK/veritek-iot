@@ -143,7 +143,7 @@ export function DeviceForm({ open, onClose, device, readOnly = false }: DeviceFo
                   id="d-id"
                   value={draft.deviceId}
                   onChange={(e) => set('deviceId', e.target.value)}
-                  placeholder="TN-8623600786286128"
+                  placeholder="GW-ABC-0001"
                   invalid={Boolean(errors.deviceId)}
                 />
               </Field>

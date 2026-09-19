@@ -141,7 +141,7 @@ async function main(): Promise<void> {
       const uid = 'LOAD-' + stamp + '-' + String(index + 1).padStart(4, '0');
       const result = await provisionGateway({
         gatewayUid: uid,
-        siteId: 'site-onida',
+        siteId: 'site-abc',
         environment: 'staging',
         meters: Array.from({ length: config.meters }, (_unused, slave) => ({ slaveId: slave + 1 })),
         notes: 'Load test fixture. Safe to delete.',

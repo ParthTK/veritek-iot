@@ -23,9 +23,9 @@ topic readwrite veritek/#
 # topic write veritek/GW-UID/command/response
 
 # Example, once the real device id is known:
-# user TN-8623600786286128
-# topic write veritek/TN-8623600786286128/#
-# topic read  veritek/TN-8623600786286128/command
+# user GW-ABC-0001
+# topic write veritek/GW-ABC-0001/#
+# topic read  veritek/GW-ABC-0001/command
 
 # No `pattern` or `topic` rule outside a user block: an unmatched client gets
 # nothing, which is the behaviour we want.

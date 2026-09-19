@@ -39,7 +39,7 @@ export type MeterType = 'Energy Monitoring System (EMS)' | 'Tri-Vector Meter' | 
 
 export interface Device {
   id: string;
-  /** SIM / gateway identifier, e.g. TN-8623600786286128 */
+  /** SIM / gateway identifier, e.g. GW-ABC-0001 */
   deviceId: string;
   name: string;
   serialNumber: string;

@@ -50,12 +50,12 @@ export async function seed(): Promise<void> {
 
   /* ------------------------------------------------------------ site -- */
   const site = await upsertSite({
-    id: 'site-onida',
-    name: 'ONIDA',
-    code: 'OND',
+    id: 'site-abc',
+    name: 'ABC Manufacturing',
+    code: 'ABC',
     city: 'Mumbai',
     state: 'Maharashtra',
-    address: 'Onida House, G-1 MIDC, Andheri East, Mumbai 400093',
+    address: '1 Example Industrial Estate, Unit A, Mumbai 400001',
     timezone: env.DEFAULT_SITE_TIMEZONE,
     tariffPerKwh: 8.5,
     currency: 'INR',

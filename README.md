@@ -92,7 +92,7 @@ never touch mock data directly — they call `listDevices()`, `listReadings(mete
 unchanged.
 
 - **Fixtures** (`data/seed.ts`) — 5 sites, 7 users, 6 devices, 7 meters, 8 alerts,
-  5 diagnostic events. ONIDA / `MFM443TX` / `TN-8623600786286128` reproduce the device
+  5 diagnostic events. ABC Manufacturing / `EM-2000` / `GW-ABC-0001` reproduce the device
   in the recording.
 - **Readings** (`data/readings.ts`) are *generated*, not stored: 500 samples per meter
   at 3-minute intervals from a per-meter seeded PRNG, so the series are identical on

@@ -130,7 +130,7 @@ second run is the one that proves nothing depends on the office network.
 ## Provisioning a gateway
 
 ```bash
-npm run provision -- create --uid GW-MUM-001 --site site-onida --meters 1,2
+npm run provision -- create --uid GW-MUM-001 --site site-abc --meters 1,2
 ```
 
 Prints the complete settings sheet for the installer. The MQTT password appears

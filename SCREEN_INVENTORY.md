@@ -18,9 +18,9 @@ blur, small text was inferred from context where unreadable. Inferred items are 
 | Logo | Outlined rounded-square chip/IC glyph + `VERITEK` wordmark |
 | Tagline (under wordmark) | "Embedding For The Future" *(inferred — small italic serif-ish)* |
 | Login hero heading | "IoT Solutions Platform" |
-| Customer / tenant in demo | **ONIDA** |
-| Device in demo | `MFM443TX`, device type "Energy Monitoring System (EMS)" |
-| Device/SIM id | `TN-8623600786286128` |
+| Customer / tenant in demo | **ABC Manufacturing** |
+| Device in demo | `EM-2000`, device type "Energy Monitoring System (EMS)" |
+| Device/SIM id | `GW-ABC-0001` |
 
 ---
 
@@ -55,7 +55,7 @@ VERITEK (logo + tagline)
      ↳ Reports
 🔔  Alerts
 ─────────────────────────
-ONIDA
+ABC Manufacturing
 <second small grey line>
 [ ⇥ Logout ]  ← full-width blue button
 ```
@@ -100,9 +100,9 @@ No "remember me" and no "forgot password" link is visible in the capture.
 
 ### 4.3 My Devices (t006)
 Card per device:
-- Device / SIM id with pin icon: `TN-8623600786286128`
+- Device / SIM id with pin icon: `GW-ABC-0001`
 - Small green badge (`SIM`/`EMS`)
-- Site name with pin icon: `ONIDA`
+- Site name with pin icon: `ABC Manufacturing`
 - Green `ONLINE` pill, top-right
 - Two mini tiles inside the card: **Modem** = `1`, **Last Updated** = time (green icon)
 - Full-width blue button to open the device
@@ -110,7 +110,7 @@ Card per device:
 ### 4.4 Energy Meters (t007–t011)
 - Header: `←` back arrow + blue lightning icon + "Energy Meters".
 - One card per meter, clickable:
-  - Meter name `MFM443TX` (small, grey, top-left) and a lightning glyph top-right
+  - Meter name `EM-2000` (small, grey, top-left) and a lightning glyph top-right
   - Large primary value `4265.71` with unit `kWh`
   - Secondary row: `4532.72 kVAh` · `1213.85 kVArh`
   - Clock icon + timestamp `11/22/2025, 11:32 AM`
@@ -120,7 +120,7 @@ Present on every meter sub-page. Pill tabs, active = solid blue with white text:
 
 `🏠 Overview` · `⚡ Voltage` · `∿ Current` · `⚡ Energy` · `⏻ Diagnostic` · `🔔 Alerts`
 
-Title format: `← <icon> MFM443TX - <Tab>`. Top-right shows `Last updated: 10:21:32 AM`.
+Title format: `← <icon> EM-2000 - <Tab>`. Top-right shows `Last updated: 10:21:32 AM`.
 
 ### 4.6 Overview tab (t013–t015)
 Row of semicircular gauge cards:
@@ -164,7 +164,7 @@ Below: **📊 Statistical Summary** — grouped min/max/average blocks:
 - Same "Showing 1-30 of 500" pager.
 
 ### 4.11 Alerts tab → Alert Settings (t032–t036)
-Title `🔔 MFM443TX - Alert Settings`.
+Title `🔔 EM-2000 - Alert Settings`.
 
 - Blue full-width banner heading the card: "⚙ Create Alert Trigger" (white text).
 - Form row:
@@ -194,8 +194,8 @@ descending, kVAh `4533.15`, kVArh `1213.81`, VRN `229.80`, VRY `392.00`, VYB `39
 ### 4.13 Report Generator (t041–t051)
 Title "Enhanced Report Generator" *(inferred)* / "Report Configuration".
 
-- **Device Information** block: Device Name `MFM443TX`, Device Type
-  `Energy Monitoring System (EMS)`, Customer `ONIDA`.
+- **Device Information** block: Device Name `EM-2000`, Device Type
+  `Energy Monitoring System (EMS)`, Customer `ABC Manufacturing`.
 - **Current Settings** block (blue heading): Date Range `Last 30 Days`,
   Report Type `Raw Data Report`.
 - **Quick Time Range Selection** — radio cards, each with a coloured calendar icon:

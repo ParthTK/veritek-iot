@@ -1,6 +1,6 @@
 # Failure and recovery test results
 
-- Date: 2026-09-19T02:47:12.791Z
+- Date: 2026-09-19T02:54:18.855Z
 - Result: **19/19 passed**
 
 | Check | Result | Detail |
@@ -8,8 +8,8 @@
 | consumer connected at start | PASS | 6 subscriptions |
 | consumer reconnected on its own | PASS | no manual intervention |
 | telemetry flows again after reconnect | PASS |  |
-| reconnect delay backs off and is capped | PASS | 500ms, 1064ms, 2361ms, 4000ms, 3988ms |
-| reconnect delay is jittered | PASS | a fleet does not retry in lockstep: 2360, 2443, 1633, 1751ms |
+| reconnect delay backs off and is capped | PASS | 560ms, 753ms, 2132ms, 4000ms, 4000ms |
+| reconnect delay is jittered | PASS | a fleet does not retry in lockstep: 2011, 1807, 1836, 2058ms |
 | invalid credentials refused | PASS | Connection refused: Bad username or password |
 | backend still consuming after a rejected client | PASS |  |
 | publishing to another gateway's topic is refused | PASS | energy/v1/gateways/SOME-OTHER-GATEWAY/telemetry |

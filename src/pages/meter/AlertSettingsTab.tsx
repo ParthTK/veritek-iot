@@ -187,7 +187,7 @@ export function AlertSettingsTab() {
               <TextInput
                 id="trigger-email"
                 type="email"
-                placeholder="alerts@onida.in"
+                placeholder="alerts@abc.example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={!emailEnabled}

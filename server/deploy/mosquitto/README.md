@@ -13,7 +13,7 @@ docker run --rm -it -v "$PWD:/work" eclipse-mosquitto:2 \
 # one entry per gateway; the password is the device token issued by
 # POST /api/admin/gateways/:id/token
 docker run --rm -it -v "$PWD:/work" eclipse-mosquitto:2 \
-  mosquitto_passwd /work/passwd TN-8623600786286128
+  mosquitto_passwd /work/passwd GW-ABC-0001
 ```
 
 `passwd` holds salted hashes, not plaintext. Keep it out of version control.

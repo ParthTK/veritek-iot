@@ -153,7 +153,7 @@ control message aimed at an energy meter is worse.
 ### Credential provisioning
 
 ```bash
-npm run provision -- create --uid GW-MUM-001 --site site-onida --meters 1,2
+npm run provision -- create --uid GW-MUM-001 --site site-abc --meters 1,2
 ```
 
 Creates the gateway, its meters, its credential and its ACL, and prints the
@@ -329,7 +329,7 @@ detected as offline.
 curl https://api.energy.<domain>/api/health/ready
 
 # Provision, then read the installer sheet back
-npm run provision -- create --uid GW-MUM-001 --site site-onida --meters 1,2
+npm run provision -- create --uid GW-MUM-001 --site site-abc --meters 1,2
 npm run provision -- profile --uid GW-MUM-001
 
 # Lost password

@@ -5,7 +5,7 @@ import { clamp, hashString, mulberry32, roundTo } from '@/utils/random';
  * Synthesises the reading history behind every chart and table.
  *
  * Values are tuned to the figures visible in the reference recording for
- * MFM443TX: line-to-line voltage averaging ~405 V across a 368–444 V band,
+ * EM-2000: line-to-line voltage averaging ~405 V across a 368–444 V band,
  * current averaging ~32 A with peaks near 151 A, and power factor averaging
  * ~0.74. Each meter gets its own deterministic seed so its series are stable
  * but distinguishable.

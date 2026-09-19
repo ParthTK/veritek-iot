@@ -150,8 +150,8 @@ async function main(): Promise<void> {
     closeDb = db.closeDb;
 
     const { provisionGateway, ensureServiceAccount } = await import('../src/iot/devices/lifecycle.js');
-    const alpha = await provisionGateway({ gatewayUid: alphaUid, siteId: 'site-onida', meters: [{ slaveId: 1 }] });
-    const beta = await provisionGateway({ gatewayUid: betaUid, siteId: 'site-onida', meters: [{ slaveId: 1 }] });
+    const alpha = await provisionGateway({ gatewayUid: alphaUid, siteId: 'site-abc', meters: [{ slaveId: 1 }] });
+    const beta = await provisionGateway({ gatewayUid: betaUid, siteId: 'site-abc', meters: [{ slaveId: 1 }] });
     await ensureServiceAccount();
     alphaPassword = alpha.mqttPassword;
     betaPassword = beta.mqttPassword;

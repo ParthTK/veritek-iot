@@ -103,7 +103,7 @@ async function main(): Promise<void> {
   const uid = 'FAIL-GW-' + Date.now().toString(36).toUpperCase();
   const provisioned = await provisionGateway({
     gatewayUid: uid,
-    siteId: 'site-onida',
+    siteId: 'site-abc',
     meters: [{ slaveId: 1 }],
   });
   const topics = topicsFor(uid);

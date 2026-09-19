@@ -4,7 +4,7 @@
  * The same lifecycle operations the API exposes, for use during an install when
  * a terminal is closer to hand than a browser.
  *
- *   npm run provision -- create --uid GW-MUM-001 --site site-onida --meters 1,2
+ *   npm run provision -- create --uid GW-MUM-001 --site site-abc --meters 1,2
  *   npm run provision -- list
  *   npm run provision -- profile --uid GW-MUM-001
  *   npm run provision -- rotate  --uid GW-MUM-001
