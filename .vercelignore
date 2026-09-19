@@ -1,0 +1,11 @@
+# Vercel builds the dashboard only, and uploads the working tree rather than
+# what git tracks - so the backend's local SQLite databases (hundreds of
+# megabytes of generated test data, gitignored but still on disk) were being
+# sent with every deploy until they tripped the 100 MB file limit.
+server/
+dist/
+node_modules/
+.git/
+*.db
+*.db-wal
+*.db-shm
