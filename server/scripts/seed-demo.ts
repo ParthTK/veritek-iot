@@ -315,6 +315,23 @@ async function tick(meterIds: Map<string, string>): Promise<void> {
   await flushAggregation(5000);
 }
 
+/**
+ * Remove everything keyed to a meter.
+ *
+ * These tables carry no foreign key to `meters` - telemetry is a hypertable,
+ * so the partitioning column has to stay free of them - which means deleting a
+ * meter silently strands its rows instead of being refused. The alert list is
+ * where that shows: orphaned events keep listing a device that is gone.
+ */
+async function purgeMeterData(meterId: string): Promise<void> {
+  for (const table of [
+    'telemetry', 'telemetry_fingerprints', 'telemetry_rollups', 'rollup_dirty',
+    'energy_counter_state', 'energy_counter_events', 'alert_events',
+  ]) {
+    await db().execute('DELETE FROM ' + table + ' WHERE meter_id = $1', [meterId]);
+  }
+}
+
 async function run(): Promise<void> {
   configureLogger({ level: env.LOG_LEVEL as never, pretty: env.LOG_PRETTY });
 
@@ -473,19 +490,19 @@ async function run(): Promise<void> {
     for (const gateway of await listGateways()) {
       if (!TEST_UID_PATTERN.test(gateway.gatewayUid)) continue;
       for (const meter of await listMeters({ gatewayId: gateway.id })) {
-        await db().execute('DELETE FROM telemetry WHERE meter_id = $1', [meter.id]);
-        await db().execute('DELETE FROM telemetry_rollups WHERE meter_id = $1', [meter.id]);
+        await purgeMeterData(meter.id);
         await deleteMeter(meter.id);
         removedMeters += 1;
       }
+      // Gateway-level events carry no meter id, so purging by meter misses them.
+      await db().execute('DELETE FROM alert_events WHERE gateway_id = $1', [gateway.id]);
       await deleteGateway(gateway.id);
       removedGateways += 1;
     }
     // Meters whose gateway was already gone.
     for (const meter of await listMeters()) {
       if (!TEST_UID_PATTERN.test(meter.meterUid)) continue;
-      await db().execute('DELETE FROM telemetry WHERE meter_id = $1', [meter.id]);
-      await db().execute('DELETE FROM telemetry_rollups WHERE meter_id = $1', [meter.id]);
+      await purgeMeterData(meter.id);
       await deleteMeter(meter.id);
       removedMeters += 1;
     }
