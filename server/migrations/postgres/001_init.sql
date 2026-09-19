@@ -1,6 +1,6 @@
 -- Vendor-neutral IoT energy platform schema (PostgreSQL / TimescaleDB).
 --
--- Nothing in here encodes a Technode-specific key, topic or register address.
+-- Nothing in here encodes a Veritek-specific key, topic or register address.
 -- Everything hardware-specific lives in data: payload_profiles, meter_models,
 -- modbus_register_maps and command_templates.
 

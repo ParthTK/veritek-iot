@@ -1,4 +1,4 @@
-# TECHNODE — IoT Energy Monitoring Platform
+# VERITEK — IoT Energy Monitoring Platform
 
 Two parts, in two directories:
 
@@ -36,7 +36,7 @@ admin@veritek.com  /  Pass@123
 ```
 
 Any other seeded user's email works with the same password, which is handy for
-looking at the app as an Operator or Viewer. `vikram.shetty@technode.com` is
+looking at the app as an Operator or Viewer. `vikram.shetty@veritek.com` is
 deactivated and demonstrates the rejected-login state.
 
 ## Implemented pages
@@ -101,7 +101,7 @@ unchanged.
   voltage swells are injected deliberately so the threshold, warning and critical
   states actually occur.
 - **Persistence** — device/user/alert/trigger/settings changes are written to
-  `localStorage` under the `technode.*` namespace and survive a refresh. Settings →
+  `localStorage` under the `veritek.*` namespace and survive a refresh. Settings →
   System → **Reset demo data** restores the shipped fixtures (and deliberately keeps
   you signed in).
 

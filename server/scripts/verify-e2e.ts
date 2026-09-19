@@ -87,38 +87,38 @@ async function main(): Promise<void> {
   /* ------------------------------------------------------- 2. identity -- */
   section('2. Device registry');
 
-  const { upsertGateway, getGatewayByUid, rotateGatewayToken } = await import('../src/db/repositories/gateways.js');
-  const { upsertMeter, getMeterByGatewaySlave } = await import('../src/db/repositories/meters.js');
+  const { rotateGatewayToken } = await import('../src/db/repositories/gateways.js');
+  const { getMeterByUid } = await import('../src/db/repositories/meters.js');
+  const { provisionGateway, ensureServiceAccount } = await import('../src/iot/devices/lifecycle.js');
+  const { topicsFor } = await import('../src/iot/mqtt/topics.js');
+  await ensureServiceAccount();
 
   const gatewayUid = 'VERIFY-GW-' + Date.now().toString(36).toUpperCase();
-  const gateway = await upsertGateway({
+
+  // Two slaves on one RS485 bus: the back-fill needs a meter with no newer
+  // readings of its own, and it proves one gateway serves many meters.
+  const provisioned = await provisionGateway({
     gatewayUid,
     name: 'E2E verification gateway',
     siteId: 'site-onida',
     hardwareModel: 'SIMULATOR',
-    connectionType: 'MQTT',
-    topicNamespace: 'technode/' + gatewayUid,
+    environment: 'staging',
+    meters: [{ slaveId: 1 }, { slaveId: 2 }],
   });
-  const meter = await upsertMeter({
-    meterUid: gatewayUid + ':1',
-    meterName: 'E2E meter (slave 1)',
-    siteId: 'site-onida',
-    gatewayId: gateway.id,
-    slaveId: 1,
-  });
-  // A second slave on the same RS485 bus: the back-fill needs a meter with no
-  // newer readings of its own, and it proves one gateway serves many meters.
-  const bufferMeter = await upsertMeter({
-    meterUid: gatewayUid + ':2',
-    meterName: 'E2E meter (slave 2, buffered)',
-    siteId: 'site-onida',
-    gatewayId: gateway.id,
-    slaveId: 2,
-  });
+  const gateway = provisioned.gateway;
+  const meter = await getMeterByUid(gatewayUid + ':1');
+  const bufferMeter = await getMeterByUid(gatewayUid + ':2');
+  if (!meter || !bufferMeter) throw new Error('provisioned meters are missing');
+
   check(
     'gateway and two Modbus slaves registered',
     Boolean(gateway.id && meter.id && bufferMeter.id),
     gatewayUid + ' slaves 1 and 2',
+  );
+  check(
+    'MQTT credential issued with a per-device ACL',
+    provisioned.mqttPassword.length > 20,
+    'publishes only ' + topicsFor(gatewayUid).telemetry,
   );
 
   const deviceToken = await rotateGatewayToken(gateway.id);
@@ -133,8 +133,8 @@ async function main(): Promise<void> {
   const simulator = new GatewaySimulator({
     gatewayUid,
     slaveIds: [1],
-    topicTemplate: 'technode/{gatewayUid}/telemetry',
-    password: devCredentials()?.password,
+    topicTemplate: topicsFor(gatewayUid).telemetry.replace(gatewayUid, '{gatewayUid}'),
+    password: provisioned.mqttPassword,
   });
   await simulator.connect();
 
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
 
   const httpPayload = simulator.buildPayloads(new Date())[0];
   const started = Date.now();
-  const response = await fetch(base + '/api/iot/technode/ingest', {
+  const response = await fetch(base + '/api/iot/veritek/ingest', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + deviceToken },
     body: JSON.stringify(httpPayload),
@@ -189,8 +189,8 @@ async function main(): Promise<void> {
   const bufferedSimulator = new GatewaySimulator({
     gatewayUid,
     slaveIds: [2],
-    topicTemplate: 'technode/{gatewayUid}/telemetry',
-    password: devCredentials()?.password,
+    topicTemplate: topicsFor(gatewayUid).telemetry.replace(gatewayUid, '{gatewayUid}'),
+    password: provisioned.mqttPassword,
   });
   await bufferedSimulator.connect();
   const backfill = await bufferedSimulator.replayHistorical({ minutesBack: 12, stepSeconds: 60 });

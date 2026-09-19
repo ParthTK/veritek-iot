@@ -13,7 +13,7 @@ const log = createLogger('simulator');
  * Gateway simulator (spec sections 20 and 21).
  *
  * IMPORTANT: the payload shape below is the SIMULATOR'S OWN FORMAT, invented
- * for this test harness. It is NOT Technode's payload - the manufacturer does
+ * for this test harness. It is NOT the vendor's payload - the manufacturer does
  * not publish one, and nothing in this repository claims otherwise. It exists
  * to prove the path end to end:
  *
@@ -152,7 +152,7 @@ export class GatewaySimulator {
     const transport = this.options.transport ?? env.SIMULATOR_TRANSPORT;
 
     if (transport === 'http') {
-      const url = this.options.httpUrl ?? env.PUBLIC_BASE_URL + '/api/iot/technode/ingest';
+      const url = this.options.httpUrl ?? env.PUBLIC_BASE_URL + '/api/iot/veritek/ingest';
       const token = this.options.deviceToken ?? env.SIMULATOR_DEVICE_TOKEN;
       const response = await fetch(url, {
         method: 'POST',

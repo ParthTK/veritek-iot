@@ -10,7 +10,7 @@ const log = createLogger('modbus:registerMap');
 /**
  * Applies a meter model's register map to whatever the gateway sent.
  *
- * Two shapes have to work, because we do not yet know which one the Technode
+ * Two shapes have to work, because we do not yet know which one the Veritek
  * unit produces:
  *
  *   1. the gateway already polled Modbus and sends named engineering values -

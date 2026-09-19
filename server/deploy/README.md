@@ -16,7 +16,7 @@ Written for whoever is standing up or operating the cloud environment.
         ┌─────────────┼──────────────┐
         │ 443/tcp     │ 8883/tcp     │ (1883 only during commissioning)
         ▼             ▼              ▼
-     nginx          EMQX ◄───── Technode gateways over 4G
+     nginx          EMQX ◄───── gateways over 4G
         │             │
         │      auth + ACL over HTTP
         │             ▼
@@ -215,7 +215,7 @@ ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 18083:localhost:18083 user@
 Alert rules are in `prometheus/alerts.yml`. Point Alertmanager at email, Slack
 or PagerDuty; the rules and thresholds are already written.
 
-**Retune `GatewayStoppedReporting` once the real Technode poll interval is
+**Retune `GatewayStoppedReporting` once the real gateway poll interval is
 known.** It currently fires after 15 minutes of silence, which is a guess.
 
 ---

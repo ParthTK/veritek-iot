@@ -39,7 +39,7 @@ test('a topic parses back into gateway and kind', () => {
 });
 
 test('a vendor topic is recognised as not ours', () => {
-  const parsed = parseTopic('technode/TN-8623600786286128/data');
+  const parsed = parseTopic('vendor-x/GW1/data');
   assert.equal(parsed.canonical, false);
   assert.equal(parsed.gatewayId, null);
 });

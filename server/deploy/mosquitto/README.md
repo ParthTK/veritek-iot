@@ -25,7 +25,7 @@ cp aclfile.example aclfile
 ```
 
 Add one block per gateway. The rule that matters: a gateway may write only
-under `technode/<its-own-uid>/...`. Without it, any device credential can
+under `veritek/<its-own-uid>/...`. Without it, any device credential can
 publish readings attributed to any other meter.
 
 ## 3. Point the backend at it

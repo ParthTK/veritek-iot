@@ -13,7 +13,7 @@ import { env, mqttDisplayUrl, mqttProtocol } from '../src/config/env.js';
  * actually emit?".
  *
  *   npm run sniffer                       # uses MQTT_SUBSCRIBE_TOPICS
- *   npm run sniffer -- "technode/#" "#"   # or explicit filters
+ *   npm run sniffer -- "veritek/#" "#"   # or explicit filters
  *
  * The backend records the same packets in `raw_iot_messages` whether or not
  * this is running; this is for watching them live on a terminal.

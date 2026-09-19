@@ -1,4 +1,4 @@
-# TECHNODE IoT Platform — Reference Video Screen Inventory
+# VERITEK IoT Platform — Reference Video Screen Inventory
 
 Source: `WhatsApp Video 2026-08-13 at 1.27.31 AM.mp4` — 205s, 464×832 portrait,
 handheld phone camera pointed at an ASUS Vivobook laptop screen (Chrome, Windows 11).
@@ -14,8 +14,8 @@ blur, small text was inferred from context where unreadable. Inferred items are 
 
 | Item | Value |
 |---|---|
-| Product name | **TECHNODE** |
-| Logo | Outlined rounded-square chip/IC glyph + `TECHNODE` wordmark |
+| Product name | **VERITEK** |
+| Logo | Outlined rounded-square chip/IC glyph + `VERITEK` wordmark |
 | Tagline (under wordmark) | "Embedding For The Future" *(inferred — small italic serif-ish)* |
 | Login hero heading | "IoT Solutions Platform" |
 | Customer / tenant in demo | **ONIDA** |
@@ -45,7 +45,7 @@ blur, small text was inferred from context where unreadable. Inferred items are 
 Confirmed by cropping and upscaling the nav region (frames t013/t019/t033):
 
 ```
-TECHNODE (logo + tagline)
+VERITEK (logo + tagline)
 ─────────────────────────
 ▣  Dashboard
 ▤  My Devices
@@ -74,13 +74,13 @@ calendar/clock icon sits at the top-right of the meter detail pages.
 ### 4.1 Login (t001)
 Centred card on light background, split into two columns.
 
-- **Left column** — solid blue panel: TECHNODE logo lockup, heading "IoT Solutions
+- **Left column** — solid blue panel: VERITEK logo lockup, heading "IoT Solutions
   Platform", one line of supporting copy *(inferred: "Monitor and manage your devices
   with ease")*. Faint circular decorative shapes bottom-right.
 - **Right column** — white panel:
   - "Welcome!" (large, bold)
   - "Sign in to your account" (grey sub-line)
-  - Email field, leading icon, value/placeholder `admin@technode.com`
+  - Email field, leading icon, value/placeholder `admin@veritek.com`
   - Password field, leading lock icon, placeholder "Enter Password", trailing eye toggle
   - Full-width blue **SIGN IN** button (uppercase)
   - Full-width outlined **Sign Up** button

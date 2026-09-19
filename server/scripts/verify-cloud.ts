@@ -453,7 +453,7 @@ function report(): void {
         '  simulator -> internet -> DNS -> TLS broker -> auth -> ACL -> consumer\n' +
         '  -> raw -> normalisation -> telemetry -> API -> live dashboard stream.\n' +
         '\nRun it again from a mobile hotspot (spec section 26), then swap this\n' +
-        'script for the Technode gateway.\n',
+        'script for the gateway.\n',
     );
   }
 

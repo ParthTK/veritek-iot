@@ -1,7 +1,7 @@
 # VERITEK IoT backend
 
 Ingestion, normalisation, storage and APIs for energy meters behind an IoT
-gateway. First target is the Technode RS485/Modbus-RTU cellular gateway, but
+gateway. First target is the Veritek RS485/Modbus-RTU cellular gateway, but
 nothing vendor-specific is compiled in.
 
 **Status: runs today, with no hardware and no infrastructure.** `npm install`
@@ -22,8 +22,8 @@ So none of those live in the source. They live in database rows:
 
 | Unknown | Where it goes | Until then |
 |---|---|---|
-| Technode's JSON schema | `payload_profiles` row | tolerant discovery parser, flagged `UNKNOWN_SCHEMA` |
-| MQTT topic | `MQTT_SUBSCRIBE_TOPICS` | subscribed to `technode/#` |
+| the vendor's JSON schema | `payload_profiles` row | tolerant discovery parser, flagged `UNKNOWN_SCHEMA` |
+| MQTT topic | `MQTT_SUBSCRIBE_TOPICS` | subscribed to `veritek/#` |
 | Meter register table | `modbus_register_maps` rows | empty map; pre-decoded values still flow |
 | Slave id / baud / parity / stop bits | `meters` row | left null, not guessed |
 | Command syntax | `command_templates` row | commands recorded as `BLOCKED`, never transmitted |
@@ -47,8 +47,8 @@ That gives you, on one process:
 
 - an MQTT broker on `:1883` (embedded; authenticated, ACL-enforced)
 - a database (embedded SQLite; set `DATABASE_URL` for Postgres/TimescaleDB)
-- the MQTT consumer, subscribed to `technode/#`
-- HTTP ingest at `POST /api/iot/technode/ingest`
+- the MQTT consumer, subscribed to `veritek/#`
+- HTTP ingest at `POST /api/iot/veritek/ingest`
 - the dashboard APIs on `:4000`
 - the commissioning screen at <http://localhost:4000/commissioning>
 
@@ -163,7 +163,7 @@ timestamp and measurements. Then save it:
 
 ```
 POST /api/admin/payload-profiles
-{ "name": "technode_schema_v1", "vendor": "technode", "enabled": true,
+{ "name": "veritek_schema_v1", "vendor": "veritek", "enabled": true,
   "verified": true, "matchRules": {...}, "spec": {...} }
 ```
 
@@ -202,7 +202,7 @@ Register-map fields that matter:
 ### Step 5 — lock it down
 
 ```
-MQTT_SUBSCRIBE_TOPICS=technode/<the real topic>
+MQTT_SUBSCRIBE_TOPICS=veritek/<the real topic>
 AUTO_PROVISION_GATEWAYS=false
 AUTO_PROVISION_METERS=false
 INGEST_REQUIRE_AUTH=true
@@ -243,7 +243,7 @@ src/
     mqtt/      client, consumer, publisher, embedded broker
     http/      ingest endpoint
     adapters/  registry, JSON path helpers, profile engine
-      technode/  parser, mapper, discovery fallback
+      veritek/  parser, mapper, discovery fallback
     modbus/    decoder (datatype/endian/scale), register-map application
     telemetry/ ingestion queue, processor, normalisation, aggregation,
                energy maths, quality, query models
@@ -256,7 +256,7 @@ src/
   realtime/    SSE + WebSocket hub
 ```
 
-Vendor-specific parsing is confined to `iot/adapters/technode/`. Everything
+Vendor-specific parsing is confined to `iot/adapters/veritek/`. Everything
 below that boundary speaks our schema only.
 
 ---
@@ -266,7 +266,7 @@ below that boundary speaks our schema only.
 ### Ingestion
 
 ```
-POST /api/iot/technode/ingest     -> 202 {"status":"accepted","id":"raw_..."}
+POST /api/iot/veritek/ingest     -> 202 {"status":"accepted","id":"raw_..."}
 POST /api/iot/:vendor/ingest         (same handler, vendor-neutral)
 ```
 
@@ -456,7 +456,7 @@ See `deploy/mosquitto/README.md` for broker credentials and ACLs.
 
 1. **The energy meter's Modbus register table** — addresses, datatypes,
    byte/word order, scaling, and the value the kWh counter rolls over at.
-2. **One real Technode JSON packet** — `npm run sniffer` captures it.
+2. **One real JSON packet from the gateway** — `npm run sniffer` captures it.
 3. **The production MQTT topic and the remote-command syntax.**
 4. **The unit's MQTT authentication and TLS capabilities.**
 

@@ -12,7 +12,7 @@ import { getRawMessage, listObservedTopics, listRawMessages } from '../../db/rep
 import { getSite } from '../../db/repositories/sites.js';
 import { latestByMeter } from '../../db/repositories/telemetry.js';
 import { parsePayload } from '../../iot/adapters/registry.js';
-import { suggestMetric } from '../../iot/adapters/technode/discovery.js';
+import { suggestMetric } from '../../iot/adapters/veritek/discovery.js';
 import { brokerStatus, devCredentials } from '../../iot/mqtt/broker.js';
 import { connectionState } from '../../iot/mqtt/client.js';
 import { consumerStats } from '../../iot/mqtt/consumer.js';
@@ -273,8 +273,8 @@ export function createCommissioningRouter(): express.Router {
     res.json({
       gatewayUid,
       draft: {
-        name: 'technode_schema_v1',
-        vendor: 'technode',
+        name: 'veritek_schema_v1',
+        vendor: 'veritek',
         version: 1,
         enabled: true,
         verified: false,
@@ -365,10 +365,10 @@ const OPEN_QUESTIONS = [
     blocks: 'Decoding raw register payloads and trusting decoded values.',
   },
   {
-    key: 'technode_payload',
-    question: 'One real Technode JSON packet.',
+    key: 'veritek_payload',
+    question: 'One real JSON packet from the gateway.',
     resolvedBy: 'Commissioning: it appears under /api/commissioning/raw the moment the gateway publishes.',
-    blocks: 'Promoting the payload profile from discovery to technode_schema_v1.',
+    blocks: 'Promoting the payload profile from discovery to veritek_schema_v1.',
   },
   {
     key: 'mqtt_topic_and_commands',

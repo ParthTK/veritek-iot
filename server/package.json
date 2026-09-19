@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Vendor-neutral IoT ingestion, normalisation and telemetry backend for energy meters behind Modbus RTU gateways (first target: Technode).",
+  "description": "Vendor-neutral IoT ingestion, normalisation and telemetry backend for energy meters behind Modbus RTU gateways (first target: Veritek).",
   "engines": {
     "node": ">=20.11"
   },

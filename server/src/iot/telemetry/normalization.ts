@@ -7,7 +7,7 @@ import type { Gateway } from '../../db/repositories/gateways.js';
 import type { Meter, RegisterMapEntry } from '../../db/repositories/meters.js';
 import { loadMetricDefinitions } from '../../db/repositories/metrics.js';
 import { getRegisterMap } from '../modbus/registerMap.js';
-import { mapPacket } from '../adapters/technode/mapper.js';
+import { mapPacket } from '../adapters/veritek/mapper.js';
 import type { NormalizedSample, NormalizedTelemetry, ParsedPacket, Quality } from '../adapters/types.js';
 import { resolveMeter } from '../devices/meters.js';
 import { assessValue } from './quality.js';

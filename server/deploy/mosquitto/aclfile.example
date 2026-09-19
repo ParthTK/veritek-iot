@@ -7,7 +7,7 @@
 # --- backend ---------------------------------------------------------------
 # The only identity allowed across the whole namespace.
 user veritek-backend
-topic readwrite technode/#
+topic readwrite veritek/#
 
 # --- one block per gateway -------------------------------------------------
 # Username = the gateway uid; password = the token from
@@ -17,15 +17,15 @@ topic readwrite technode/#
 # Copy this block for each unit, replacing GW-UID.
 
 # user GW-UID
-# topic write technode/GW-UID/telemetry
-# topic write technode/GW-UID/status
-# topic read  technode/GW-UID/command
-# topic write technode/GW-UID/command/response
+# topic write veritek/GW-UID/telemetry
+# topic write veritek/GW-UID/status
+# topic read  veritek/GW-UID/command
+# topic write veritek/GW-UID/command/response
 
 # Example, once the real device id is known:
 # user TN-8623600786286128
-# topic write technode/TN-8623600786286128/#
-# topic read  technode/TN-8623600786286128/command
+# topic write veritek/TN-8623600786286128/#
+# topic read  veritek/TN-8623600786286128/command
 
 # No `pattern` or `topic` rule outside a user block: an unmatched client gets
 # nothing, which is the behaviour we want.

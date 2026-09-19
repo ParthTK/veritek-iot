@@ -4,7 +4,7 @@
  * replace the services above without touching component code.
  */
 
-const NAMESPACE = 'technode';
+const NAMESPACE = 'veritek';
 
 /**
  * Bump whenever the shipped seed changes in a way that persisted copies would

@@ -10,7 +10,7 @@ const log = createLogger('devices:gateways');
 /**
  * Gateway identity resolution.
  *
- * How a Technode unit identifies itself in its payload - `gateway_id`, IMEI,
+ * How a gateway identifies itself in its payload - `gateway_id`, IMEI,
  * MQTT client id, or something else entirely - is one of the four unknowns
  * until the hardware connects. Rather than betting on one, we resolve against
  * whichever identifier the packet actually carried and record what we used.
@@ -87,7 +87,7 @@ export async function resolveGateway(input: ResolveGatewayInput): Promise<Gatewa
 
 /**
  * Topic prefix a gateway should be confined to, derived from where it actually
- * published. `technode/GW001/telemetry` yields `technode/GW001`, which becomes
+ * published. `veritek/GW001/telemetry` yields `veritek/GW001`, which becomes
  * its MQTT ACL scope.
  */
 export function deriveNamespace(topic: string): string {

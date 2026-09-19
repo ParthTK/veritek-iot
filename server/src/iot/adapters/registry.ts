@@ -1,5 +1,5 @@
 import { listProfiles } from '../../db/repositories/profiles.js';
-import { TechnodePayloadAdapter } from './technode/parser.js';
+import { VeritekPayloadAdapter } from './veritek/parser.js';
 import type { AdapterResult, PayloadContext } from './types.js';
 
 /**
@@ -22,13 +22,13 @@ export function registerAdapter(vendor: string, factory: AdapterFactory): void {
   factories.set(vendor, factory);
 }
 
-registerAdapter('technode', (profiles) => new TechnodePayloadAdapter(profiles));
+registerAdapter('veritek', (profiles) => new VeritekPayloadAdapter(profiles));
 
 /**
  * Parse a payload with the adapter that owns it.
  *
  * Selection is by the vendor on the matching payload profile; with no match we
- * fall back to the Technode adapter's discovery pass, which is what keeps an
+ * fall back to the Veritek adapter's discovery pass, which is what keeps an
  * unrecognised first packet from killing the MQTT consumer.
  */
 export async function parsePayload(
@@ -45,9 +45,9 @@ export async function parsePayload(
   const vendor =
     options.vendorHint ??
     scoped.find((profile) => profile.enabled)?.vendor ??
-    'technode';
+    'veritek';
 
-  const factory = factories.get(vendor) ?? factories.get('technode');
+  const factory = factories.get(vendor) ?? factories.get('veritek');
   if (!factory) {
     return {
       status: 'INVALID_PAYLOAD',

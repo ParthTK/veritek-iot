@@ -3,14 +3,14 @@ import type { ProfileSpec } from '../../../db/repositories/profiles.js';
 /**
  * Commissioning-only fallback spec.
  *
- * IMPORTANT: none of these names come from Technode documentation. They are the
+ * IMPORTANT: none of these names come from the manufacturer's documentation. They are the
  * field names *IoT gateways in general* tend to use, listed so that the very
  * first unrecognised packet still shows something useful on screen instead of
  * being a blank row.
  *
  * Anything parsed through this spec is reported as UNKNOWN_SCHEMA and never
  * treated as a verified mapping. Replace it with a real `payload_profiles` row
- * (`technode_schema_v1`) once a genuine packet has been captured.
+ * (`veritek_schema_v1`) once a genuine packet has been captured.
  */
 export const DISCOVERY_SPEC: ProfileSpec = {
   gatewayIdPaths: [

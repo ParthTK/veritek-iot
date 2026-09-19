@@ -1,5 +1,5 @@
 /**
- * Domain model for the TECHNODE IoT energy-monitoring platform.
+ * Domain model for the VERITEK IoT energy-monitoring platform.
  *
  * These interfaces describe the shapes the UI consumes. The service layer in
  * `src/services` is the only place that knows where the data actually comes

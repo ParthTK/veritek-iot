@@ -28,7 +28,7 @@ import type {
  */
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
-const TOKEN_KEY = 'technode.apiToken';
+const TOKEN_KEY = 'veritek.apiToken';
 
 export function getToken(): string | null {
   try {

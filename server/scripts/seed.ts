@@ -20,7 +20,7 @@ const log = createLogger('seed');
  *   - Modbus register addresses, datatypes, byte order or scaling. Those come
  *     from the meter's own manual (spec section 5). A plausible-looking guess
  *     here would be worse than an empty table, because someone would trust it.
- *   - A `technode_schema_v1` payload profile. That needs a real captured
+ *   - A `veritek_schema_v1` payload profile. That needs a real captured
  *     packet; a placeholder row is created, disabled and marked unverified, so
  *     the slot is obvious tomorrow.
  */
@@ -89,11 +89,11 @@ export async function seed(): Promise<void> {
     siteId: site.id,
     hardwareModel: 'SIMULATOR',
     connectionType: 'MQTT',
-    topicNamespace: 'technode/' + env.SIMULATOR_GATEWAY_UID,
+    topicNamespace: 'veritek/' + env.SIMULATOR_GATEWAY_UID,
     sourceUtcOffset: env.DEFAULT_SOURCE_UTC_OFFSET,
     enabled: true,
     notes:
-      'Test gateway for the simulator. Delete or disable it once the physical Technode unit is ' +
+      'Test gateway for the simulator. Delete or disable it once the physical gateway is ' +
       'commissioned; it exists so the whole path can be verified before hardware arrives.',
   });
 
@@ -122,7 +122,7 @@ export async function seed(): Promise<void> {
   // The simulator's own format. Real, verified - for the simulator.
   await upsertProfile({
     name: 'simulator_v1',
-    vendor: 'technode',
+    vendor: 'veritek',
     version: 1,
     enabled: true,
     priority: 50,
@@ -145,14 +145,14 @@ export async function seed(): Promise<void> {
       passthroughUnmapped: true,
     },
     notes:
-      'Decodes the LOCAL SIMULATOR payload. This is NOT Technode hardware format - it is a test ' +
+      'Decodes the LOCAL SIMULATOR payload. This is NOT gateway format - it is a test ' +
       'harness shape invented for this repository. Disable it once the real gateway is mapped.',
   });
 
   // The slot tomorrow's real mapping goes into. Disabled and unverified.
   await upsertProfile({
-    name: 'technode_schema_v1',
-    vendor: 'technode',
+    name: 'veritek_schema_v1',
+    vendor: 'veritek',
     version: 1,
     enabled: false,
     priority: 10,

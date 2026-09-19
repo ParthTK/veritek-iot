@@ -79,7 +79,7 @@ const schema = z.object({
   DB_AUTO_MIGRATE: bool(true),
 
   /* -------------------------------------------------------------- mqtt -- */
-  // Every one of these is a placeholder until the Technode unit is on the
+  // Every one of these is a placeholder until the gateway is on the
   // bench. Nothing about the topic tree or payload shape is compiled in.
   MQTT_ENABLED: bool(true),
   MQTT_HOST: str('127.0.0.1'),
@@ -90,11 +90,11 @@ const schema = z.object({
   MQTT_PASSWORD: optionalStr(),
   MQTT_CLIENT_ID: str('veritek-backend'),
   /** Topic the backend publishes telemetry echoes / test packets to. */
-  MQTT_TELEMETRY_TOPIC: str('technode/+/telemetry'),
+  MQTT_TELEMETRY_TOPIC: str('veritek/+/telemetry'),
   /** Topic template for outbound remote-configuration commands. */
-  MQTT_COMMAND_TOPIC: str('technode/{gatewayUid}/command'),
+  MQTT_COMMAND_TOPIC: str('veritek/{gatewayUid}/command'),
   /** Topic the gateway is expected to publish connection state on. */
-  MQTT_STATUS_TOPIC: str('technode/{gatewayUid}/status'),
+  MQTT_STATUS_TOPIC: str('veritek/{gatewayUid}/status'),
   MQTT_TLS: bool(false),
   MQTT_TLS_CA_PATH: optionalStr(),
   MQTT_TLS_CERT_PATH: optionalStr(),
@@ -113,7 +113,7 @@ const schema = z.object({
    * we listen to the whole vendor namespace, discover the actual topic from the
    * first packet, then narrow this to the device-specific topic.
    */
-  MQTT_SUBSCRIBE_TOPICS: csv(['technode/#']),
+  MQTT_SUBSCRIBE_TOPICS: csv(['veritek/#']),
   MQTT_LWT_TOPIC: optionalStr(),
   MQTT_LWT_PAYLOAD: str('{"status":"offline"}'),
   MQTT_LWT_QOS: int(1, 0, 2),
@@ -150,7 +150,7 @@ const schema = z.object({
   /* ---------------------------------------------------------- time -- */
   DEFAULT_SITE_TIMEZONE: str('Asia/Kolkata'),
   /**
-   * Applied when a device timestamp carries no offset. The Technode unit has an
+   * Applied when a device timestamp carries no offset. the gateway has an
    * RTC; whether it stamps UTC or local time is unknown until we see a packet.
    */
   DEFAULT_SOURCE_UTC_OFFSET: str('+05:30'),
@@ -183,7 +183,7 @@ const schema = z.object({
 
   /* -------------------------------------------------------- commands -- */
   /**
-   * Remote configuration stays disarmed until Technode's exact command syntax
+   * Remote configuration stays disarmed until the vendor's exact command syntax
    * is known and loaded as a command template (spec section 17).
    */
   COMMANDS_ENABLED: bool(false),
@@ -257,7 +257,7 @@ const schema = z.object({
   SIMULATOR_SLAVE_IDS: csv(['1', '2']),
   SIMULATOR_INTERVAL_SECONDS: int(15, 1, 3600),
   SIMULATOR_JITTER_SECONDS: int(5, 0, 600),
-  SIMULATOR_TOPIC: str('technode/{gatewayUid}/telemetry'),
+  SIMULATOR_TOPIC: str('veritek/{gatewayUid}/telemetry'),
   SIMULATOR_TRANSPORT: str('mqtt'),
   SIMULATOR_DEVICE_TOKEN: optionalStr(),
 });

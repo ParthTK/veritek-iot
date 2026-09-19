@@ -54,7 +54,7 @@ export async function publish(
   });
 }
 
-/** Resolve a topic template such as `technode/{gatewayUid}/command`. */
+/** Resolve a topic template such as `veritek/{gatewayUid}/command`. */
 export function resolveTopic(template: string, values: Record<string, string | number | null>): string {
   return renderTemplate(template, values);
 }

@@ -17,7 +17,7 @@ export default {
         'theme-2xs': ['11px', '16px'],
       },
       colors: {
-        // Primary action blue, matched to the TECHNODE reference capture
+        // Primary action blue, matched to the VERITEK reference capture
         brand: {
           25: '#F5F8FF',
           50: '#EFF4FF',

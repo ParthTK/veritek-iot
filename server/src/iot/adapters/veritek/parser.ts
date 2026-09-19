@@ -6,10 +6,10 @@ import { parseWithProfile } from '../profileParser.js';
 import { DISCOVERY_SPEC } from './discovery.js';
 import type { AdapterResult, ParsedPacket, PayloadContext } from '../types.js';
 
-const log = createLogger('adapter:technode');
+const log = createLogger('adapter:veritek');
 
 /**
- * TechnodePayloadAdapter
+ * VeritekPayloadAdapter
  *
  * WHAT IS KNOWN: the unit speaks JSON over MQTT or HTTP, polls energy meters
  * over RS485 Modbus RTU, can address several slaves on the same bus, carries an
@@ -18,24 +18,24 @@ const log = createLogger('adapter:technode');
  * WHAT IS NOT KNOWN: the production JSON schema and the topic format. The
  * manufacturer does not publish them.
  *
- * So this adapter contains no Technode field names. It runs whichever
+ * So this adapter contains no Veritek field names. It runs whichever
  * `payload_profiles` row matches the message. When none matches it falls back
  * to a clearly-labelled discovery pass whose only job is to keep the consumer
  * alive, record what arrived, and flag the packet UNKNOWN_SCHEMA so a human can
  * map it (spec section 19).
  *
  * Tomorrow's commissioning step is therefore: capture the first real packet,
- * read its key names off the commissioning screen, save a `technode_schema_v1`
+ * read its key names off the commissioning screen, save a `veritek_schema_v1`
  * profile row. No redeploy.
  */
-export class TechnodePayloadAdapter {
-  readonly name = 'technode';
+export class VeritekPayloadAdapter {
+  readonly name = 'veritek';
 
   constructor(private readonly profiles: PayloadProfile[]) {}
 
   /**
    * The adapter accepts any JSON object or array. Narrowing this would mean
-   * asserting something about Technode's schema that we cannot yet assert.
+   * asserting something about the vendor's schema that we cannot yet assert.
    */
   canHandle(payload: unknown): boolean {
     return payload !== null && typeof payload === 'object';

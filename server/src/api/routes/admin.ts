@@ -386,7 +386,7 @@ export function createAdminRouter(): express.Router {
       commandsEnabled: env.COMMANDS_ENABLED,
       note:
         'Remote configuration stays disarmed until a template is filled in from real vendor ' +
-        "documentation and marked verified. Technode's command syntax is not published.",
+        "documentation and marked verified. the vendor's command syntax is not published.",
     });
   });
 

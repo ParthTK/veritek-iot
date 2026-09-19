@@ -60,7 +60,7 @@ export interface ObservedPath {
 
 export interface AdapterResult {
   status: ParseStatus;
-  /** Adapter that produced this result, e.g. 'technode'. */
+  /** Adapter that produced this result, e.g. 'veritek'. */
   adapter: string;
   /** Payload profile (mapping config) that matched, if any. */
   profileId: string | null;

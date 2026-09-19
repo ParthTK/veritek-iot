@@ -16,7 +16,7 @@ const log = createLogger('devices:meters');
 /**
  * Meter identity resolution.
  *
- * One gateway, many meters: the Technode unit polls several Modbus slaves on
+ * One gateway, many meters: the gateway polls several Modbus slaves on
  * the same RS485 pair, so `gateway + slave_id` - not the gateway alone - is the
  * key that identifies a meter (spec section 7).
  */

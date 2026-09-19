@@ -1,7 +1,7 @@
 # Production IoT infrastructure — handover
 
 Prepared for whoever operates this platform and whoever connects the first
-Technode gateway.
+gateway.
 
 **No passwords, keys or secrets appear in this document.** Where a value is
 deployment-specific it is marked `<fill in at deployment>`.
@@ -278,7 +278,7 @@ restart.
 
 ---
 
-## 9. Bringing up the Technode unit
+## 9. Bringing up the gateway
 
 Staging first. Production only after a clean staging run.
 
@@ -292,7 +292,7 @@ Staging first. Production only after a clean staging run.
    - `/api/provisioning/auth-events?denied=true` — if it will not connect
 5. Capture the first real packet: topic, exact JSON, client id, interval.
 6. Map it: `/api/commissioning/suggest-profile` → `/test-parse` → save as
-   `technode_schema_v1` → replay the stored packets.
+   `veritek_schema_v1` → replay the stored packets.
 7. Enter the meter's Modbus register table (`docs/register-map.template.json`).
 8. `npm run provision -- activate --uid GW-MUM-001`
 9. Lock down: narrow `MQTT_VENDOR_TOPICS`, `AUTO_PROVISION_*=false`, close 1883.
@@ -309,7 +309,7 @@ Credentials cross the network in clear text while it is open.
 |---|---|---|---|
 | 1 | Does the unit support MQTT over TLS, and which CA does it trust? | `MQTT_PLAINTEXT_ENABLED`, firewall | Closing 1883 permanently |
 | 2 | Can its publish/subscribe topics be set freely? | `MQTT_VENDOR_TOPICS` + that gateway's ACL | Using the `energy/v1` convention everywhere |
-| 3 | What is the production JSON payload? | `payload_profiles` → `technode_schema_v1` | Promoting parsing from discovery to verified |
+| 3 | What is the production JSON payload? | `payload_profiles` → `veritek_schema_v1` | Promoting parsing from discovery to verified |
 | 4 | What is the remote-configuration command syntax? | `command_templates` | Enabling remote configuration |
 
 Also unconfirmed, and deliberately left unset rather than guessed: MQTT protocol

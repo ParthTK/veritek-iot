@@ -77,7 +77,7 @@ export function createIngestRouter(): express.Router {
    * Vendor-specific path from the spec. It is an alias: the payload shape is
    * decided by the payload profile, not by the URL.
    */
-  router.post('/technode/ingest', deviceAuth, limiter, rawBody, handler);
+  router.post('/veritek/ingest', deviceAuth, limiter, rawBody, handler);
 
   /** Generic path, so a second vendor needs no new route. */
   router.post('/:vendor/ingest', deviceAuth, limiter, rawBody, handler);

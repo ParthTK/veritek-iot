@@ -163,7 +163,7 @@ function describeBlock(
   if (!template) {
     return (
       'No command template exists for ' + hardwareModel + '. ' +
-      "Technode's exact command syntax is not published; add a verified command_templates row " +
+      "the vendor's exact command syntax is not published; add a verified command_templates row " +
       'before this command can be transmitted.'
     );
   }

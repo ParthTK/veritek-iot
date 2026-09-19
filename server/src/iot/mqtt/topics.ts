@@ -10,7 +10,7 @@ import { renderTemplate, topicMatches } from '../adapters/jsonPath.js';
  *   energy/v1/gateways/{gatewayId}/response    device -> cloud
  *
  * This is *our* convention, and it is what the ACL is built from. It is not an
- * assumption about the hardware: whether the Technode unit can be configured to
+ * assumption about the hardware: whether the gateway can be configured to
  * publish on an arbitrary topic is unverified until the unit is on the bench.
  *
  * So the consumer subscribes to this namespace *and* to any extra vendor

@@ -237,7 +237,7 @@ export function Sidebar({ open, onClose, selectedDeviceId }: SidebarProps) {
 
         <div className="border-t border-gray-200 px-3 py-3">
           <div className="mb-2 px-1">
-            <p className="text-theme-xs font-semibold text-gray-800">{siteLabel ?? 'TECHNODE'}</p>
+            <p className="text-theme-xs font-semibold text-gray-800">{siteLabel ?? 'VERITEK'}</p>
             <p className="truncate text-theme-2xs text-gray-500">{user?.email}</p>
           </div>
           <button

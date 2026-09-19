@@ -124,7 +124,7 @@ export function createApp(): Express {
       service: 'veritek-iot-backend',
       commissioning: '/commissioning',
       health: '/api/health',
-      ingest: '/api/iot/technode/ingest',
+      ingest: '/api/iot/veritek/ingest',
       stream: '/api/stream',
     });
   });

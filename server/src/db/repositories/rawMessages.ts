@@ -7,7 +7,7 @@ import { toBool, toInt, toIso, toJson, toStr } from '../types.js';
  * The raw ingest log (spec section 3).
  *
  * Every packet is written here byte-for-byte *before* anything tries to
- * understand it. When the real Technode gateway connects tomorrow, this table
+ * understand it. When the real gateway connects tomorrow, this table
  * is where its first packet will be read off - and if the parser rejects it,
  * the payload is still safely on disk to map against and replay.
  */

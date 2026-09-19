@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       bar();
       process.stdout.write('GATEWAY PROVISIONED\n');
       bar();
-      process.stdout.write('Enter these into the Technode unit:\n\n');
+      process.stdout.write('Enter these into the gateway:\n\n');
       const connection = result.connectionProfile;
       const rows: Array<[string, string]> = [
         ['MQTT host', connection.host],

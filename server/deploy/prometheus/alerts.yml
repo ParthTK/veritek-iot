@@ -3,7 +3,7 @@
 # Every threshold that depends on how often meters actually report is written
 # as a rule parameter here rather than compiled into the application, so it can
 # be tuned per estate without a deploy. The gateway-offline rule in particular
-# must be retuned once the real Technode poll interval is known.
+# must be retuned once the real gateway poll interval is known.
 
 groups:
   - name: veritek-infrastructure

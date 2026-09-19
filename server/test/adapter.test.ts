@@ -8,7 +8,7 @@ import { parseWithProfile } from '../src/iot/adapters/profileParser.js';
 /**
  * The adapter has to cope with a payload shape nobody has seen yet, so these
  * tests deliberately use several *different* invented shapes. None of them
- * claims to be Technode's format.
+ * claims to be the vendor's format.
  */
 
 const options = { defaultOffsetMinutes: 330 };
@@ -149,10 +149,10 @@ test('key lookup ignores case and separators', () => {
 });
 
 test('MQTT wildcards match as the spec defines', () => {
-  assert.equal(topicMatches('technode/#', 'technode/GW1/telemetry'), true);
-  assert.equal(topicMatches('technode/+/telemetry', 'technode/GW1/telemetry'), true);
-  assert.equal(topicMatches('technode/+/telemetry', 'technode/GW1/status'), false);
-  assert.equal(topicMatches('technode/+/telemetry', 'other/GW1/telemetry'), false);
+  assert.equal(topicMatches('veritek/#', 'veritek/GW1/telemetry'), true);
+  assert.equal(topicMatches('veritek/+/telemetry', 'veritek/GW1/telemetry'), true);
+  assert.equal(topicMatches('veritek/+/telemetry', 'veritek/GW1/status'), false);
+  assert.equal(topicMatches('veritek/+/telemetry', 'other/GW1/telemetry'), false);
   assert.equal(topicMatches('a/b', 'a/b/c'), false);
 });
 

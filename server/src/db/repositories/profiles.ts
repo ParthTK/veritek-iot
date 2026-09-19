@@ -7,9 +7,9 @@ import { toBool, toInt, toIso, toJson, toStr } from '../types.js';
  * Payload profiles: the configuration that tells an adapter where, inside an
  * arbitrary JSON document, the gateway id / slave id / timestamp / values live.
  *
- * This table is the reason no Technode JSON key appears anywhere in the source.
+ * This table is the reason no Veritek JSON key appears anywhere in the source.
  * When the first real packet is captured tomorrow, the mapping is a row here -
- * `technode_schema_v1` - not a code change.
+ * `veritek_schema_v1` - not a code change.
  */
 
 export interface ProfileMatchRules {
