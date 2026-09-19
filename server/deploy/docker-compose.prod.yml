@@ -162,7 +162,11 @@ services:
     <<: [*restart, *logging]
     container_name: veritek-demo-data
     profiles: ["demo"]
-    command: ["node", "dist/scripts/seed-demo.js", "--days", "30", "--interval", "15", "--live"]
+    # Only a short backfill on start: the service restarts, and re-aggregating
+    # a month of buckets every time would make each restart expensive. Load the
+    # deep history once, by hand:
+    #   docker exec veritek-backend node dist/scripts/seed-demo.js     #     --days 30 --interval 15 --purge-test
+    command: ["node", "dist/scripts/seed-demo.js", "--days", "2", "--interval", "15", "--live"]
     environment:
       NODE_ENV: production
       LOG_PRETTY: "false"
