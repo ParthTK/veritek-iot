@@ -23,7 +23,8 @@
     "test:load": "tsx --env-file-if-exists=.env scripts/load-test.ts",
     "test:failure": "tsx --env-file-if-exists=.env scripts/failure-test.ts",
     "verify:cloud": "tsx --env-file-if-exists=.env scripts/verify-cloud.ts",
-    "provision": "tsx --env-file-if-exists=.env scripts/provision.ts"
+    "provision": "tsx --env-file-if-exists=.env scripts/provision.ts",
+    "seed:demo": "tsx --env-file-if-exists=.env scripts/seed-demo.ts"
   },
   "dependencies": {
     "@prometheus-io/client": "^0.16.1",

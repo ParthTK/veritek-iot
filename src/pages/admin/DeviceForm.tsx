@@ -157,7 +157,7 @@ export function DeviceForm({ open, onClose, device, readOnly = false }: DeviceFo
                   id="d-serial"
                   value={draft.serialNumber}
                   onChange={(e) => set('serialNumber', e.target.value)}
-                  placeholder="TND-EMS-4410-0091"
+                  placeholder="VTK-EMS-4410-0091"
                   invalid={Boolean(errors.serialNumber)}
                 />
               </Field>

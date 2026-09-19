@@ -154,6 +154,7 @@ interface ApiGateway {
   lastDataAt: string | null;
   createdAt: string | null;
   notes: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 const DEFAULT_THRESHOLDS: DeviceThresholds = {
@@ -192,14 +193,21 @@ function mapCommunication(connectionType: string | null): Device['communicationM
   return '4G LTE';
 }
 
+function readConfig(gateway: ApiGateway, key: string): string | null {
+  const value = gateway.config?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
 export function mapGateway(gateway: ApiGateway, meterCount: number): Device {
   return {
     id: gateway.id,
     deviceId: gateway.gatewayUid,
     name: gateway.name,
-    serialNumber: gateway.gatewayUid,
+    serialNumber: readConfig(gateway, 'serialNumber') ?? gateway.gatewayUid,
     siteId: gateway.siteId ?? '',
-    location: gateway.notes ?? gateway.hardwareModel ?? '',
+    // Where the panel physically is, which is not the same thing as the
+    // free-text notes field it used to fall back to.
+    location: readConfig(gateway, 'location') ?? gateway.hardwareModel ?? gateway.notes ?? '',
     meterType: 'Energy Monitoring System (EMS)',
     communicationMode: mapCommunication(gateway.connectionType),
     readingInterval: 1,

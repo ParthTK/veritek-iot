@@ -149,6 +149,38 @@ services:
       timescaledb:
         condition: service_healthy
 
+  # ----------------------------------------------------- demo data writer --
+  # Optional, and off unless explicitly started:
+  #     docker compose --profile demo up -d demo-data
+  #
+  # Keeps the demonstration gateways reporting so the dashboard has live
+  # numbers. It writes invented readings, so it must never run against a
+  # deployment carrying real customer data - hence the profile, which keeps it
+  # out of a plain `docker compose up`.
+  demo-data:
+    image: veritek-iot/backend:latest
+    <<: [*restart, *logging]
+    container_name: veritek-demo-data
+    profiles: ["demo"]
+    command: ["node", "dist/scripts/seed-demo.js", "--days", "30", "--interval", "15", "--live"]
+    environment:
+      NODE_ENV: production
+      LOG_PRETTY: "false"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-veritek}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-veritek_iot}"
+      EMBEDDED_BROKER_ENABLED: "false"
+      MQTT_ENABLED: "false"
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET}"
+      TOKEN_PEPPER: "${TOKEN_PEPPER:?set TOKEN_PEPPER}"
+      BROKER_WEBHOOK_SECRET: "${BROKER_WEBHOOK_SECRET:?set BROKER_WEBHOOK_SECRET}"
+      MQTT_PASSWORD: "${MQTT_SERVICE_PASSWORD:?set MQTT_SERVICE_PASSWORD}"
+      MQTT_PUBLIC_HOST: "${MQTT_PUBLIC_HOST:?set MQTT_PUBLIC_HOST}"
+      SEED_ADMIN_EMAIL: "${SEED_ADMIN_EMAIL:?set SEED_ADMIN_EMAIL}"
+      SEED_ADMIN_PASSWORD: "${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD}"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
   # ------------------------------------------------------- tls termination --
   nginx:
     image: nginx:1.27-alpine
