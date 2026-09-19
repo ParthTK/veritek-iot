@@ -45,6 +45,10 @@ PUBLIC_IP="${PUBLIC_IP:-$(curl -sf -H 'Metadata-Flavor: Google' \
 # BASE_DOMAIN for the real domain when there is one; only DNS and this variable
 # change, never the gateways' firmware.
 BASE_DOMAIN="${BASE_DOMAIN:-$(echo "$PUBLIC_IP" | tr '.' '-').sslip.io}"
+# Extra browser origins allowed to call the API. The dashboard is also hosted
+# on Vercel, which is a different origin; CORS must name it, because a
+# wildcard is not usable once requests carry an Authorization header.
+EXTRA_CORS_ORIGINS="${EXTRA_CORS_ORIGINS:-https://veritekiot.vercel.app}"
 MQTT_HOST_NAME="mqtt.$BASE_DOMAIN"
 API_HOST_NAME="api.$BASE_DOMAIN"
 
@@ -83,7 +87,7 @@ LOG_LEVEL=info
 
 MQTT_PUBLIC_HOST=$MQTT_HOST_NAME
 API_PUBLIC_HOST=$API_HOST_NAME
-CORS_ORIGINS=https://$API_HOST_NAME
+CORS_ORIGINS=https://$API_HOST_NAME${EXTRA_CORS_ORIGINS:+,$EXTRA_CORS_ORIGINS}
 GRAFANA_ROOT_URL=http://localhost:3000
 
 POSTGRES_USER=veritek
