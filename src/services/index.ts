@@ -1,4 +1,10 @@
 import { DIAGNOSTIC_EVENTS, SITES } from '@/data/seed';
+import {
+  dailyBuckets,
+  generateReadings,
+  hourlyBuckets,
+  sortByTimeDesc,
+} from '@/data/readings';
 import type {
   Alert,
   AlertStatus,
@@ -167,13 +173,15 @@ export function getMeter(id: string): Meter | undefined {
 /* -------------------------------------------------------------- readings -- */
 
 /**
- * Reading history comes from the backend.
+ * Where the dashboard's data comes from.
  *
- * The accessors stay synchronous so no component had to change: they return
- * whatever is cached in the store, and kick off a fetch when it is missing or
- * stale. The fetch writes into the store, which notifies subscribers, and the
- * views re-render with real data.
+ * Off by default: the bundled fixtures, regenerated locally, which is what the
+ * demo is meant to show and what it showed before the backend existed. Set
+ * VITE_LIVE_DATA=true to drive the estate, readings and alerts from the API
+ * instead, against a deployment that has real gateways reporting.
  */
+const USE_LIVE_DATA = import.meta.env.VITE_LIVE_DATA === 'true';
+
 const READING_TTL_MS = 30_000;
 const readingFetchedAt = new Map<string, number>();
 const inFlight = new Set<string>();
@@ -196,9 +204,26 @@ function ensureReadings(meterId: string): void {
     .finally(() => inFlight.delete(meterId));
 }
 
+/**
+ * Reading history is derived, not stored: regenerating from a per-meter seed
+ * keeps the figures stable across reloads without shipping a database.
+ */
+const localReadings = new Map<string, Reading[]>();
+
 export function listReadings(meterId: string): Reading[] {
-  ensureReadings(meterId);
-  return getState().readings[meterId] ?? [];
+  if (USE_LIVE_DATA) {
+    ensureReadings(meterId);
+    return getState().readings[meterId] ?? [];
+  }
+
+  const cached = localReadings.get(meterId);
+  if (cached) return cached;
+
+  const meter = getMeter(meterId);
+  if (!meter) return [];
+  const rows = sortByTimeDesc(generateReadings(meter));
+  localReadings.set(meterId, rows);
+  return rows;
 }
 
 export function latestReading(meterId: string): Reading | undefined {
@@ -250,6 +275,8 @@ function ensureBuckets(
 }
 
 export function getHourlyBuckets(meterId: string): ConsumptionBucket[] {
+  if (!USE_LIVE_DATA) return hourlyBuckets(listReadings(meterId));
+
   const key = meterId + '|1h';
   ensureBuckets(key, meterId, '1h', '-24h', (at) =>
     new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -258,6 +285,11 @@ export function getHourlyBuckets(meterId: string): ConsumptionBucket[] {
 }
 
 export function getDailyBuckets(meterId: string, days = 7): ConsumptionBucket[] {
+  if (!USE_LIVE_DATA) {
+    const meter = getMeter(meterId);
+    return meter ? dailyBuckets(meter, listReadings(meterId), days) : [];
+  }
+
   const key = meterId + '|1d|' + days;
   ensureBuckets(key, meterId, '1d', '-' + days + 'd', (at) =>
     new Date(at).toLocaleDateString([], { day: '2-digit', month: 'short' }),
@@ -358,6 +390,7 @@ export function createUserId(): string {
  * the live stream reports something changed.
  */
 export async function refreshLiveData(): Promise<void> {
+  if (!USE_LIVE_DATA) return;
   if (!getToken()) return;
   try {
     const { devices, meters } = await fetchDevicesAndMeters();
@@ -370,6 +403,7 @@ export async function refreshLiveData(): Promise<void> {
 }
 
 export async function refreshAlerts(): Promise<void> {
+  if (!USE_LIVE_DATA) return;
   if (!getToken()) return;
   try {
     setAlerts(await fetchAlerts());
@@ -387,6 +421,7 @@ let pendingRefresh: ReturnType<typeof setTimeout> | null = null;
  * slow poll so a dropped stream cannot leave the dashboard silently stale.
  */
 export function startLiveUpdates(): void {
+  if (!USE_LIVE_DATA) return;
   if (!getToken() || stopStream) return;
 
   void refreshLiveData();
