@@ -39,6 +39,7 @@ import { markDirty } from '../src/db/repositories/rollups.js';
 import { upsertSite } from '../src/db/repositories/sites.js';
 import { insertTelemetry, latestByMeter, type TelemetryInsert } from '../src/db/repositories/telemetry.js';
 import { AGGREGATION_BUCKETS, flushAggregation } from '../src/iot/telemetry/aggregation.js';
+import type { BucketInterval } from '../src/core/time.js';
 import { evaluateAbsenceRules, evaluateTelemetry } from '../src/iot/alerts/engine.js';
 import { METRIC_CATALOG } from '../src/config/metricCatalog.js';
 import { bucketStart } from '../src/core/time.js';
@@ -365,6 +366,28 @@ async function tick(meterIds: Map<string, string>): Promise<void> {
   await evaluateAbsenceRules();
 }
 
+/** Nominal length of each rollup bucket, in minutes. */
+const BUCKET_MINUTES: Record<string, number> = {
+  '1m': 1, '5m': 5, '15m': 15, '1h': 60, '1d': 1440, '1mo': 43200,
+};
+
+/**
+ * Which rollup buckets are worth building for a sample at this instant.
+ *
+ * A bucket shorter than the sampling interval can only ever hold one sample,
+ * so it carries nothing the raw row does not - and building them for a month
+ * of history is not free: the aggregator rebuilds one bucket per query, so the
+ * first run spent twenty-five minutes on 65,779 of them, the large majority
+ * single-sample minute buckets nothing would ever read.
+ *
+ * They are still built near the present, because that is where the dashboard
+ * asks for minute resolution, and where the live writer keeps adding samples
+ * that genuinely land several to a bucket.
+ */
+function bucketsFor(at: Date, intervalMinutes: number, recentFrom: number): BucketInterval[] {
+  if (at.getTime() >= recentFrom) return AGGREGATION_BUCKETS;
+  return AGGREGATION_BUCKETS.filter((bucket) => (BUCKET_MINUTES[bucket] ?? 1) >= intervalMinutes);
+}
 /**
  * Remove everything keyed to a meter.
  *
@@ -451,6 +474,8 @@ async function run(): Promise<void> {
   }
 
   const stepMs = intervalMinutes * 60_000;
+  // The dashboard asks for minute resolution over the last 24 hours only.
+  const recentFrom = Date.now() - 26 * 3_600_000;
   const dirty: Array<{ bucket: (typeof AGGREGATION_BUCKETS)[number]; meterId: string; bucketStart: string }> = [];
   let written = 0;
 
@@ -505,7 +530,7 @@ async function run(): Promise<void> {
           });
         }
 
-        for (const bucket of AGGREGATION_BUCKETS) {
+        for (const bucket of bucketsFor(at, intervalMinutes, recentFrom)) {
           const bStart = bucketStart(iso, bucket, env.DEFAULT_SITE_TIMEZONE).toISOString();
           const key = bucket + '|' + bStart;
           if (seenBuckets.has(key)) continue;
