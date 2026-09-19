@@ -11,7 +11,10 @@ import { rateLimit } from '../middleware/rateLimit.js';
 const log = createLogger('api:auth');
 
 const loginSchema = z.object({
-  email: z.string().min(3),
+  // Trimmed here as well as in the browser: a copy-pasted address with a
+  // trailing space would otherwise fail as "incorrect email or password",
+  // which is close to undebuggable from the outside.
+  email: z.string().trim().min(3),
   password: z.string().min(1),
 });
 

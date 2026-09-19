@@ -44,13 +44,14 @@ export async function getUser(id: string): Promise<User | null> {
 }
 
 export async function getUserByEmail(email: string): Promise<User | null> {
-  const row = await db().one('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+  const row = await db().one('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email.trim()]);
   return row ? map(row) : null;
 }
 
 /** Verify a sign-in. Returns null on any failure, without saying which. */
 export async function authenticate(email: string, password: string): Promise<User | null> {
-  const row = await db().one('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+  // Case- and whitespace-insensitive: the address is an identifier, not a secret.
+  const row = await db().one('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email.trim()]);
   if (!row) return null;
   if (!verifySecret(password, toStr(row.password_hash))) return null;
   const user = map(row);

@@ -137,7 +137,7 @@ export function LoginPage() {
                     name="email"
                     type="email"
                     autoComplete="email"
-                    placeholder="info@veritek.com"
+                    placeholder="admin@veritek.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     aria-invalid={Boolean(fieldErrors.email) || undefined}
