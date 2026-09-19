@@ -29,7 +29,8 @@ import { configureLogger, createLogger } from '../src/core/logger.js';
 import { closeDb, connectDb, db } from '../src/db/index.js';
 import { migrate } from '../src/db/migrate.js';
 import {
-  deleteGateway, listGateways, setGatewayStatus, touchGatewayData, touchGatewaySeen, upsertGateway,
+  deleteGateway, getGatewayByUid, listGateways, setGatewayStatus, touchGatewayData, touchGatewaySeen,
+  upsertGateway,
 } from '../src/db/repositories/gateways.js';
 import { deleteMeter, listMeters, setMeterStatus, touchMeterData, upsertMeter } from '../src/db/repositories/meters.js';
 import { upsertMetricDefinition } from '../src/db/repositories/metrics.js';
@@ -306,7 +307,8 @@ async function tick(meterIds: Map<string, string>): Promise<void> {
       await touchMeterData(meterId, iso);
     }
 
-    const persisted = await upsertGateway({ gatewayUid: gateway.uid });
+    const persisted = await getGatewayByUid(gateway.uid);
+    if (!persisted) continue;
     await touchGatewaySeen(persisted.id, iso);
     await touchGatewayData(persisted.id, iso);
     await setGatewayStatus(persisted.id, gateway.status);
@@ -469,7 +471,8 @@ async function run(): Promise<void> {
 
     // Gateway presence mirrors the meter history that was just written.
     const seenAt = new Date(now.getTime() - gateway.staleMinutes * 60_000).toISOString();
-    const persisted = await upsertGateway({ gatewayUid: gateway.uid });
+    const persisted = await getGatewayByUid(gateway.uid);
+    if (!persisted) continue;
     await touchGatewaySeen(persisted.id, seenAt);
     await touchGatewayData(persisted.id, seenAt);
     await setGatewayStatus(persisted.id, gateway.status);
