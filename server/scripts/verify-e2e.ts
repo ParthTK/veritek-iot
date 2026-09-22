@@ -162,6 +162,26 @@ async function main(): Promise<void> {
     voltage ? 'voltage_l1 = ' + voltage.value + ' V' : 'voltage_l1 missing',
   );
 
+  // The broker ACL keeps a device on its own topic. This proves the payload
+  // cannot undo that: a device writing another gateway's id into the body of
+  // a message on its own topic must not get readings filed under the victim.
+  const victimUid = gatewayUid + '-VICTIM';
+  await provisionGateway({ gatewayUid: victimUid, siteId: 'site-abc', environment: 'staging', meters: [{ slaveId: 1 }] });
+  const victimMeter = await getMeterByUid(victimUid + ':1');
+  const spoof = simulator.buildPayloads(new Date(Date.now() + 1000))[0]!;
+  await simulator.publishRaw({ ...spoof, gateway_id: victimUid });
+  await wait(600);
+  await waitForIdle();
+
+  const spoofRaw = await listRawMessages({ gatewayUid, limit: 10 });
+  const victimReadings = victimMeter ? await latestByMeter(victimMeter.id) : [];
+  const refusedRow = spoofRaw.rows.find((row) => /authenticated as/i.test(row.processingError ?? ''));
+  check(
+    'payload cannot claim another gateway identity',
+    Boolean(refusedRow) && victimReadings.length === 0,
+    refusedRow ? 'refused: ' + refusedRow.processingError : 'victim has ' + victimReadings.length + ' readings',
+  );
+
   /* ---------------------------------------------------- 4. HTTP ingest -- */
   section('4. HTTP ingest path');
 

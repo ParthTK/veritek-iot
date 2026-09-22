@@ -4,7 +4,7 @@ import { LogEvent } from '../../core/logEvents.js';
 import { createLogger } from '../../core/logger.js';
 import { parseOffsetMinutes, BUCKET_INTERVALS, bucketStart } from '../../core/time.js';
 import type { Gateway } from '../../db/repositories/gateways.js';
-import { bumpGatewayHealth, touchGatewayData, touchGatewaySeen } from '../../db/repositories/gateways.js';
+import { bumpGatewayHealth, getGateway, touchGatewayData, touchGatewaySeen } from '../../db/repositories/gateways.js';
 import { touchMeterData } from '../../db/repositories/meters.js';
 import { loadMetricDefinitions } from '../../db/repositories/metrics.js';
 import { recordFieldObservations } from '../../db/repositories/profiles.js';
@@ -21,6 +21,7 @@ import { advanceCounter, getCounterState, recordCounterEvent } from '../../db/re
 import { parsePayload } from '../adapters/registry.js';
 import type { NormalizedTelemetry, PayloadContext } from '../adapters/types.js';
 import { resolveGateway } from '../devices/gateways.js';
+import { parseTopic } from '../mqtt/topics.js';
 import { DEFAULT_COUNTER_OPTIONS, computeCounterDelta } from './energy.js';
 import { normalizePacket } from './normalization.js';
 
@@ -109,11 +110,24 @@ async function processRaw(raw: RawMessage): Promise<ProcessResult> {
   const resolution = await resolveGateway({
     payloadUid,
     assertedUid: raw.gatewayUid,
+    verifiedUid: await verifiedSenderUid(raw),
     mqttClientId: raw.mqttClientId,
     topic: raw.mqttTopic,
     transport: raw.transport,
   });
   const gateway = resolution.gateway;
+
+  if (resolution.rejected) {
+    // Filed under the authenticated sender, not the gateway it claimed to be:
+    // the raw log is evidence of who tried it.
+    await markProcessed(raw.id, {
+      status: 'UNKNOWN_GATEWAY',
+      error: resolution.rejected,
+      adapter: result.adapter,
+      profileId: result.profileId,
+    });
+    return { status: 'UNKNOWN_GATEWAY', telemetry: [], duplicates: 0, warnings, error: resolution.rejected };
+  }
 
   /* -- second parse: honour a profile pinned to this specific gateway ----- */
   if (gateway?.payloadProfileId && gateway.payloadProfileId !== result.profileId) {
@@ -399,4 +413,24 @@ async function fallbackCounterState(
   const state = await getCounterState(meterId, metric);
   if (!state || state.lastValue === null || !state.lastTime) return null;
   return { value: state.lastValue, time: state.lastTime };
+}
+
+/**
+ * The gateway the transport has proven sent this packet, if any.
+ *
+ * On our own MQTT namespace the topic's gateway segment is proof: the broker
+ * only lets a credential publish under its own id. An HTTP packet carries the
+ * gateway resolved from its device token. A vendor-shaped topic or an
+ * unauthenticated header proves nothing, so those return null and the older,
+ * hint-based resolution applies.
+ */
+async function verifiedSenderUid(raw: RawMessage): Promise<string | null> {
+  if (raw.transport === 'MQTT' && raw.mqttTopic) {
+    const parsed = parseTopic(raw.mqttTopic);
+    return parsed.canonical ? parsed.gatewayId : null;
+  }
+  if (raw.transport === 'HTTP' && raw.gatewayId) {
+    return (await getGateway(raw.gatewayId))?.gatewayUid ?? null;
+  }
+  return null;
 }

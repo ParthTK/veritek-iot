@@ -22,6 +22,11 @@ export interface GatewayResolution {
   provisioned: boolean;
   /** Which identifier matched: 'uid' | 'client-id' | 'topic' | 'token'. */
   matchedBy: string | null;
+  /**
+   * Set when the packet was refused outright rather than merely unattributed:
+   * an authenticated sender whose payload claims to be a different gateway.
+   */
+  rejected?: string;
 }
 
 export interface ResolveGatewayInput {
@@ -29,13 +34,48 @@ export interface ResolveGatewayInput {
   payloadUid?: string | null;
   /** Identifier asserted by the transport (HTTP device token, MQTT client id). */
   assertedUid?: string | null;
+  /**
+   * Identity the transport has *proven*: the gateway segment of a topic on our
+   * own namespace (the broker's ACL only lets a device publish under its own
+   * id), or the gateway behind an HTTP device token. When present it is the
+   * only identity that counts.
+   */
+  verifiedUid?: string | null;
   mqttClientId?: string | null;
   topic?: string | null;
   transport?: 'MQTT' | 'HTTP';
 }
 
 export async function resolveGateway(input: ResolveGatewayInput): Promise<GatewayResolution> {
+  if (input.verifiedUid) {
+    // The payload is written by the device and proves nothing. Letting it name
+    // a gateway would undo the broker ACL from inside the message: device A,
+    // publishing on its own topic, could file its readings under device B just
+    // by writing B's id into the body.
+    if (input.payloadUid && input.payloadUid !== input.verifiedUid) {
+      log.warn('payload claims a different gateway than the authenticated sender; packet refused', {
+        event: LogEvent.UNKNOWN_GATEWAY,
+        authenticatedAs: input.verifiedUid,
+        payloadClaims: input.payloadUid,
+        topic: input.topic,
+      });
+      return {
+        gateway: null,
+        provisioned: false,
+        matchedBy: null,
+        rejected:
+          'Payload names gateway ' + input.payloadUid + ' but the sender is authenticated as ' +
+          input.verifiedUid + '.',
+      };
+    }
+    const gateway = await getGatewayByUid(input.verifiedUid);
+    if (gateway) return { gateway, provisioned: false, matchedBy: input.transport === 'HTTP' ? 'token' : 'topic' };
+    // A verified identity with no record falls through to the ordinary path,
+    // which auto-provisions it when that is switched on.
+  }
+
   const candidates: Array<{ uid: string; matchedBy: string }> = [];
+  if (input.verifiedUid) candidates.push({ uid: input.verifiedUid, matchedBy: 'topic' });
   if (input.payloadUid) candidates.push({ uid: input.payloadUid, matchedBy: 'payload' });
   if (input.assertedUid) candidates.push({ uid: input.assertedUid, matchedBy: 'token' });
   if (input.mqttClientId) candidates.push({ uid: input.mqttClientId, matchedBy: 'client-id' });
