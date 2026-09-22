@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Eye, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Eye, Pencil, Plus, Radio, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardBody, CardFooter } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -10,9 +10,11 @@ import { Pagination } from '@/components/ui/Pagination';
 import { ConfirmDialog } from '@/components/ui/Modal';
 import { Badge, StatusPill } from '@/components/ui/Badge';
 import { DeviceForm } from './DeviceForm';
+import { ConnectDeviceModal, DeviceConnectionModal } from './ConnectDeviceModal';
 import {
   deleteDevice,
   getUser,
+  isLiveDevice,
   listMeters,
   listSites,
   siteName,
@@ -38,6 +40,8 @@ export function DeviceManagementPage() {
   const [editing, setEditing] = useState<Device | null>(null);
   const [readOnly, setReadOnly] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Device | null>(null);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [connection, setConnection] = useState<Device | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -83,7 +87,10 @@ export function DeviceManagementPage() {
       className: 'bg-white',
       render: (d) => (
         <div>
-          <p className="font-medium text-gray-800">{d.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-medium text-gray-800">{d.name}</p>
+            {isLiveDevice(d.id) ? <Badge tone="success">Live</Badge> : null}
+          </div>
           <p className="text-theme-2xs text-gray-500">{d.deviceId}</p>
         </div>
       ),
@@ -164,22 +171,37 @@ export function DeviceManagementPage() {
           >
             <Eye size={15} aria-hidden />
           </button>
-          <button
-            type="button"
-            onClick={() => openEdit(d)}
-            className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-brand-600"
-            aria-label={`Edit ${d.name}`}
-          >
-            <Pencil size={15} aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={() => setPendingDelete(d)}
-            className="rounded p-1.5 text-gray-500 hover:bg-error-50 hover:text-error-600"
-            aria-label={`Delete ${d.name}`}
-          >
-            <Trash2 size={15} aria-hidden />
-          </button>
+          {isLiveDevice(d.id) ? (
+            // A real device is the server's record: its credentials are managed
+            // from the connection sheet, not edited or deleted like demo data.
+            <button
+              type="button"
+              onClick={() => setConnection(d)}
+              className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-brand-600"
+              aria-label={`Connection details for ${d.name}`}
+            >
+              <Radio size={15} aria-hidden />
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => openEdit(d)}
+                className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-brand-600"
+                aria-label={`Edit ${d.name}`}
+              >
+                <Pencil size={15} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(d)}
+                className="rounded p-1.5 text-gray-500 hover:bg-error-50 hover:text-error-600"
+                aria-label={`Delete ${d.name}`}
+              >
+                <Trash2 size={15} aria-hidden />
+              </button>
+            </>
+          )}
         </div>
       ),
     },
@@ -196,10 +218,16 @@ export function DeviceManagementPage() {
           { label: 'Devices' },
         ]}
         actions={
-          <Button onClick={openAdd}>
-            <Plus size={15} aria-hidden />
-            Add Device
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={openAdd}>
+              <Plus size={15} aria-hidden />
+              Add demo device
+            </Button>
+            <Button onClick={() => setConnectOpen(true)}>
+              <Radio size={15} aria-hidden />
+              Connect a device
+            </Button>
+          </div>
         }
       />
 
@@ -308,6 +336,14 @@ export function DeviceManagementPage() {
           </CardFooter>
         ) : null}
       </Card>
+
+      <ConnectDeviceModal open={connectOpen} onClose={() => setConnectOpen(false)} />
+
+      <DeviceConnectionModal
+        device={connection}
+        open={connection !== null}
+        onClose={() => setConnection(null)}
+      />
 
       <DeviceForm
         open={formOpen}

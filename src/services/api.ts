@@ -481,3 +481,76 @@ export function openTelemetryStream(onTelemetry: () => void): () => void {
 export function isLiveBackendConfigured(): boolean {
   return true;
 }
+
+/* ----------------------------------------------------------- provisioning -- */
+
+/**
+ * Connecting a device.
+ *
+ * Provisioning registers it, issues its broker credential and confines it to
+ * its own topics in one call. The password comes back exactly once - it is
+ * stored only as a hash - so the caller must show it to the installer there
+ * and then, and offer a rotation if it is lost.
+ */
+export interface ConnectionProfile {
+  host: string;
+  tlsPort: number;
+  plainPort: number | null;
+  username: string;
+  clientId: string;
+  telemetryTopic: string;
+  statusTopic: string;
+  commandTopic: string;
+  responseTopic: string;
+  qos: number;
+  tls: boolean;
+}
+
+export interface ProvisionResult {
+  gateway: { id: string; gatewayUid: string; name: string; siteId: string | null };
+  connection: ConnectionProfile;
+  /** Shown once, never retrievable again. */
+  mqttPassword: string;
+}
+
+export interface ProvisionInput {
+  gatewayUid: string;
+  name?: string;
+  siteId?: string | null;
+  hardwareModel?: string | null;
+  /** Modbus slave ids on the device's RS485 bus. */
+  slaveIds: number[];
+}
+
+export async function provisionDevice(input: ProvisionInput): Promise<ProvisionResult> {
+  return request<ProvisionResult>('/api/provisioning/gateways', {
+    method: 'POST',
+    body: JSON.stringify({
+      gatewayUid: input.gatewayUid,
+      name: input.name,
+      siteId: input.siteId ?? null,
+      hardwareModel: input.hardwareModel ?? null,
+      meters: input.slaveIds.map((slaveId) => ({ slaveId })),
+    }),
+  });
+}
+
+/** The installer's sheet for a device already connected. Carries no secret. */
+export async function fetchConnectionProfile(
+  gatewayId: string,
+): Promise<{ connection: ConnectionProfile; meters: Array<{ meterUid: string; slaveId: number | null }> }> {
+  return request('/api/provisioning/gateways/' + gatewayId + '/profile');
+}
+
+/** Issue a new password for a device that kept its identity and history. */
+export async function rotateDevicePassword(gatewayId: string): Promise<{ mqttPassword: string }> {
+  return request('/api/provisioning/gateways/' + gatewayId + '/rotate', { method: 'POST' });
+}
+
+/** Withdraw a device's access for good. Its readings are kept. */
+export async function revokeDevice(gatewayId: string, reason: string): Promise<void> {
+  await request('/api/provisioning/gateways/' + gatewayId + '/revoke', {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}

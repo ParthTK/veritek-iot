@@ -1,4 +1,5 @@
 import { DIAGNOSTIC_EVENTS, SITES } from '@/data/seed';
+import { USES_BACKEND } from './dataMode';
 import {
   dailyBuckets,
   generateReadings,
@@ -35,6 +36,9 @@ import {
   getState,
   setAlerts,
   setDevices,
+  isLiveAlert,
+  isLiveMeter,
+  setLiveAlerts,
   setLiveDevicesAndMeters,
   setMeters,
   setReadings,
@@ -173,15 +177,13 @@ export function getMeter(id: string): Meter | undefined {
 /* -------------------------------------------------------------- readings -- */
 
 /**
- * Where the dashboard's data comes from.
+ * Readings follow their device.
  *
- * Off by default: the bundled fixtures, regenerated locally, which is what the
- * demo is meant to show and what it showed before the backend existed. Set
- * VITE_LIVE_DATA=true to drive the estate, readings and alerts from the API
- * instead, against a deployment that has real gateways reporting.
+ * A meter the backend told us about reads its history from the backend; a
+ * bundled fixture regenerates its own. So a real device shows real data and a
+ * demo device shows demo data, and neither is ever a mixture of the two.
+ * See dataMode.ts.
  */
-const USE_LIVE_DATA = import.meta.env.VITE_LIVE_DATA === 'true';
-
 const READING_TTL_MS = 30_000;
 const readingFetchedAt = new Map<string, number>();
 const inFlight = new Set<string>();
@@ -211,7 +213,7 @@ function ensureReadings(meterId: string): void {
 const localReadings = new Map<string, Reading[]>();
 
 export function listReadings(meterId: string): Reading[] {
-  if (USE_LIVE_DATA) {
+  if (isLiveMeter(meterId)) {
     ensureReadings(meterId);
     return getState().readings[meterId] ?? [];
   }
@@ -275,7 +277,7 @@ function ensureBuckets(
 }
 
 export function getHourlyBuckets(meterId: string): ConsumptionBucket[] {
-  if (!USE_LIVE_DATA) return hourlyBuckets(listReadings(meterId));
+  if (!isLiveMeter(meterId)) return hourlyBuckets(listReadings(meterId));
 
   const key = meterId + '|1h';
   ensureBuckets(key, meterId, '1h', '-24h', (at) =>
@@ -285,7 +287,7 @@ export function getHourlyBuckets(meterId: string): ConsumptionBucket[] {
 }
 
 export function getDailyBuckets(meterId: string, days = 7): ConsumptionBucket[] {
-  if (!USE_LIVE_DATA) {
+  if (!isLiveMeter(meterId)) {
     const meter = getMeter(meterId);
     return meter ? dailyBuckets(meter, listReadings(meterId), days) : [];
   }
@@ -308,18 +310,22 @@ export function listAlerts(): Alert[] {
 export function setAlertStatus(id: string, status: AlertStatus): void {
   // Optimistic: update locally so the row reacts immediately, then persist.
   const now = new Date().toISOString();
-  setAlerts(
-    getState().alerts.map((a) => {
+  const live = isLiveAlert(id);
+  const apply = (rows: Alert[]): Alert[] =>
+    rows.map((a) => {
       if (a.id !== id) return a;
       if (status === 'acknowledged') return { ...a, status, acknowledgedAt: now };
       if (status === 'resolved') {
         return { ...a, status, resolvedAt: now, acknowledgedAt: a.acknowledgedAt ?? now };
       }
       return { ...a, status };
-    }),
-  );
+    });
 
-  if (status === 'acknowledged' || status === 'resolved') {
+  const state = getState();
+  if (live) setLiveAlerts(apply(state.liveAlerts));
+  else setAlerts(apply(state.demoAlerts));
+
+  if ((status === 'acknowledged' || status === 'resolved') && isLiveAlert(id)) {
     void updateAlertStatus(id, status)
       // Re-read from the backend so the row reflects what was actually stored,
       // including a rejection we optimistically showed as applied.
@@ -390,7 +396,7 @@ export function createUserId(): string {
  * the live stream reports something changed.
  */
 export async function refreshLiveData(): Promise<void> {
-  if (!USE_LIVE_DATA) return;
+  if (!USES_BACKEND) return;
   if (!getToken()) return;
   try {
     const { devices, meters } = await fetchDevicesAndMeters();
@@ -403,10 +409,12 @@ export async function refreshLiveData(): Promise<void> {
 }
 
 export async function refreshAlerts(): Promise<void> {
-  if (!USE_LIVE_DATA) return;
+  if (!USES_BACKEND) return;
   if (!getToken()) return;
   try {
-    setAlerts(await fetchAlerts());
+    // Into the live slice: the demo alerts are persisted fixtures and must
+    // survive a backend that reports none.
+    setLiveAlerts(await fetchAlerts());
   } catch {
     /* keep what we have */
   }
@@ -421,7 +429,7 @@ let pendingRefresh: ReturnType<typeof setTimeout> | null = null;
  * slow poll so a dropped stream cannot leave the dashboard silently stale.
  */
 export function startLiveUpdates(): void {
-  if (!USE_LIVE_DATA) return;
+  if (!USES_BACKEND) return;
   if (!getToken() || stopStream) return;
 
   void refreshLiveData();
@@ -452,6 +460,8 @@ export function stopLiveUpdates(): void {
 }
 
 /** True once the backend has answered at least once. */
+export { isLiveDevice, isLiveMeter } from './dataStore';
+
 export function isLiveDataLoaded(): boolean {
   return getState().liveDataLoaded;
 }

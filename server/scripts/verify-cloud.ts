@@ -221,6 +221,10 @@ async function main(): Promise<void> {
       reconnectPeriod: 0,
       connectTimeout: 20000,
       rejectUnauthorized: !options.insecure,
+      // MQTT 5, so the broker's refusal of a topic this device may not use
+      // arrives as a reason code. Under 3.1.1 a dropped publish is still
+      // PUBACKed and looks exactly like an accepted one.
+      protocolVersion: 5,
     });
     client.once('connect', () => resolve({ ok: true, client }));
     client.once('error', (error) => {
@@ -276,11 +280,18 @@ async function main(): Promise<void> {
   check('publish accepted with QoS 1 acknowledgement', published, Date.now() - publishStarted + 'ms to PUBACK');
 
   const wrongTopic = options.topicRoot + '/gateways/NOT-THIS-GATEWAY/telemetry';
-  const refused = await new Promise<boolean>((resolve) => {
-    client.publish(wrongTopic, '{}', { qos: 1 }, (error) => resolve(Boolean(error)));
-    setTimeout(() => resolve(true), 8000);
+  const refusal = await new Promise<string>((resolve) => {
+    client.publish(wrongTopic, '{}', { qos: 1 }, (error, packet) => {
+      const reason = (packet as { reasonCode?: number } | undefined)?.reasonCode ?? 0;
+      if (error) resolve('refused: ' + error.message);
+      else if (reason >= 0x80) resolve('refused with reason code ' + reason);
+      else resolve('ACCEPTED');
+    });
+    // No answer at all is also a refusal, but say so rather than claim a pass
+    // the broker never gave.
+    setTimeout(() => resolve('no acknowledgement'), 8000);
   });
-  check("publishing as another gateway is refused over the wire", refused, wrongTopic);
+  check("publishing as another gateway is refused over the wire", refusal !== 'ACCEPTED', wrongTopic + ' - ' + refusal);
 
   /* --------------------------------------------------------- 5. the API -- */
   section('5. Data readable through the API');

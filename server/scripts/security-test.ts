@@ -304,6 +304,10 @@ async function runLive(context: Context & { env: { MQTT_HOST: string; MQTT_PORT:
         clean: true,
         reconnectPeriod: 0,
         connectTimeout: 8000,
+        // MQTT 5, so a refusal is visible. Under 3.1.1 a broker that enforces
+        // its ACL by dropping the message still sends PUBACK, and a publish
+        // the broker threw away is indistinguishable from one it accepted.
+        protocolVersion: 5,
       });
       const done = (result: { ok: boolean; error?: string; client?: import('mqtt').MqttClient }): void => {
         if (!result.ok) client.end(true);
@@ -392,11 +396,14 @@ async function runLive(context: Context & { env: { MQTT_HOST: string; MQTT_PORT:
         }
       };
       client.once('close', onClose);
-      client.publish(topic, JSON.stringify({ probe: true }), { qos: 1 }, (error) => {
+      client.publish(topic, JSON.stringify({ probe: true }), { qos: 1 }, (error, packet) => {
         if (settled) return;
         settled = true;
         client.removeListener('close', onClose);
-        resolve(error ? 'deny' : 'allow');
+        // Reason codes of 0x80 and above are refusals; 0x87 is "not
+        // authorized". Mosquitto answers that way rather than disconnecting.
+        const reason = (packet as { reasonCode?: number } | undefined)?.reasonCode ?? 0;
+        resolve(error || reason >= 0x80 ? 'deny' : 'allow');
       });
       setTimeout(() => {
         if (!settled) {
