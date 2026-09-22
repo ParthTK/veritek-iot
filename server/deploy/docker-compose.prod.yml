@@ -31,7 +31,7 @@ x-logging: &logging
 services:
   # ------------------------------------------------------------------ broker --
   mosquitto:
-    image: eclipse-mosquitto:${MOSQUITTO_VERSION:-2.1.2}
+    image: eclipse-mosquitto:${MOSQUITTO_VERSION:-2.1.2-alpine}
     <<: [*restart, *logging]
     container_name: veritek-mosquitto
     # Each connection is a file descriptor; the default 1024 would cap the
