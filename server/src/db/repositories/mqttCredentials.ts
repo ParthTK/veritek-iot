@@ -70,6 +70,11 @@ function map(row: Record<string, unknown>): MqttCredential {
 
 /* ------------------------------------------------------------------ reads -- */
 
+export async function getCredentialById(id: string): Promise<MqttCredential | null> {
+  const row = await db().one('SELECT * FROM mqtt_credentials WHERE id = $1', [id]);
+  return row ? map(row) : null;
+}
+
 export async function getCredentialByUsername(username: string): Promise<MqttCredential | null> {
   const row = await db().one('SELECT * FROM mqtt_credentials WHERE mqtt_username = $1', [username]);
   return row ? map(row) : null;

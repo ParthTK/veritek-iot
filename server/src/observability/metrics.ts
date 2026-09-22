@@ -31,6 +31,19 @@ export const metrics = {
   brokerAuthFailures: counter('veritek_mqtt_auth_failure_total', 'Rejected MQTT CONNECT attempts.'),
   brokerAclAllows: counter('veritek_mqtt_acl_allow_total', 'Permitted MQTT publish/subscribe checks.'),
   brokerAclDenials: counter('veritek_mqtt_acl_deny_total', 'Refused MQTT publish/subscribe checks.'),
+  brokerControlConnected: gauge(
+    'veritek_broker_control_connected',
+    'Mosquitto dynamic-security control connection (1 connected). 0 means credentials cannot be changed.',
+  ),
+  brokerStat: gauge('veritek_broker_stat', 'Mosquitto $SYS statistics, one series per stat.', ['stat']),
+  brokerMissingCredentials: gauge(
+    'veritek_broker_missing_credentials',
+    'Credentials active in the database but absent from the broker; each needs a rotation.',
+  ),
+  brokerUnknownClients: gauge(
+    'veritek_broker_unknown_clients',
+    'Broker clients the database did not issue. Disabled on sight.',
+  ),
 
   /* -------------------------------------------------- consumer / client -- */
   mqttConnected: gauge('veritek_mqtt_connected', 'Backend MQTT consumer connection state (1 connected).'),

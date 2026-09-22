@@ -5,10 +5,12 @@ import { badRequest, notFound } from '../../core/errors.js';
 import { getGateway, getGatewayByUid, listGateways } from '../../db/repositories/gateways.js';
 import { listMeters } from '../../db/repositories/meters.js';
 import {
+  getCredentialById,
   listAuthEvents,
   listCredentials,
   setCredentialStatus,
 } from '../../db/repositories/mqttCredentials.js';
+import { applyStatus } from '../../iot/mqtt/brokerDirectory.js';
 import {
   activateGateway,
   connectionProfileFor,
@@ -240,7 +242,13 @@ export function createProvisioningRouter(): express.Router {
       reason: z.string().max(500).optional(),
     });
     const { status, reason } = schema.parse(req.body);
-    await setCredentialStatus(pathParam(req, 'credentialId'), status, reason ?? null);
+    const credentialId = pathParam(req, 'credentialId');
+    await setCredentialStatus(credentialId, status, reason ?? null);
+    const credential = await getCredentialById(credentialId);
+    if (!credential) throw notFound('No credential with id ' + credentialId);
+    // With Mosquitto the broker holds its own copy; without this the change
+    // would sit in the database until the next reconciliation.
+    await applyStatus(credential);
     res.json({ ok: true, status });
   });
 

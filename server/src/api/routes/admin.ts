@@ -133,8 +133,11 @@ export function createAdminRouter(): express.Router {
       gatewayUid: gateway.gatewayUid,
       token,
       note:
-        'Store this now - it cannot be retrieved again. Use it as the MQTT password ' +
-        '(username = gateway uid) or as the HTTP ingest bearer token.',
+        env.MQTT_BROKER_AUTH === 'dynsec'
+          ? 'Store this now - it cannot be retrieved again. This is the HTTP ingest bearer token. ' +
+            'MQTT credentials are separate: issue them with POST /api/provisioning/gateways/:id/rotate.'
+          : 'Store this now - it cannot be retrieved again. Use it as the MQTT password ' +
+            '(username = gateway uid) or as the HTTP ingest bearer token.',
     });
   });
 

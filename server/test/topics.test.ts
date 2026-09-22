@@ -120,3 +120,43 @@ test('an empty rule set permits nothing', () => {
   assert.equal(aclAllows([], topicsFor(ALPHA).telemetry), false);
   assert.equal(aclAllows([], '#'), false);
 });
+
+/* ------------------------------------------- Mosquitto dynamic security -- */
+
+import { aclToDynsec } from '../src/iot/mqtt/dynsec.js';
+import { roleNameFor } from '../src/iot/mqtt/brokerDirectory.js';
+
+test('a device ACL becomes exact publish grants and a literal command subscription', () => {
+  const rules = aclToDynsec(deviceAcl(ALPHA));
+  const publish = rules.filter((rule) => rule.acltype === 'publishClientSend').map((rule) => rule.topic);
+  const subscribe = rules.filter((rule) => rule.acltype.startsWith('subscribe'));
+
+  assert.deepEqual(publish.sort(), [
+    'energy/v1/gateways/GW-MUM-001/response',
+    'energy/v1/gateways/GW-MUM-001/status',
+    'energy/v1/gateways/GW-MUM-001/telemetry',
+  ]);
+  // Literal only: a device must not be able to widen its command subscription.
+  assert.deepEqual(subscribe, [
+    { acltype: 'subscribeLiteral', topic: 'energy/v1/gateways/GW-MUM-001/command', allow: true, priority: 0 },
+  ]);
+  assert.ok(rules.every((rule) => rule.allow));
+  assert.ok(!publish.some((topic) => topic.includes(BETA)), 'nothing on another gateway');
+  assert.ok(!publish.some((topic) => topic.endsWith('/command')), 'a device never publishes commands');
+});
+
+test('the backend account gets its wildcard filters and nothing wider', () => {
+  const rules = aclToDynsec(serviceAcl());
+  const literal = rules.filter((rule) => rule.acltype === 'subscribeLiteral').map((rule) => rule.topic);
+  assert.ok(literal.includes('energy/v1/gateways/+/telemetry'));
+  assert.ok(!literal.includes('#') && !literal.includes('energy/#'), 'no catch-all subscription');
+  assert.deepEqual(
+    rules.filter((rule) => rule.acltype === 'publishClientSend').map((rule) => rule.topic),
+    ['energy/v1/gateways/+/command'],
+  );
+});
+
+test('every credential gets its own broker role', () => {
+  assert.notEqual(roleNameFor(ALPHA), roleNameFor(BETA));
+  assert.equal(roleNameFor(ALPHA), 'veritek-cred-GW-MUM-001');
+});

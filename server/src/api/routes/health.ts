@@ -10,6 +10,9 @@ import { countTelemetry } from '../../db/repositories/telemetry.js';
 import { brokerStatus } from '../../iot/mqtt/broker.js';
 import { connectionState } from '../../iot/mqtt/client.js';
 import { consumerStats } from '../../iot/mqtt/consumer.js';
+import { lastReconcileReport } from '../../iot/mqtt/brokerDirectory.js';
+import { dynsecState } from '../../iot/mqtt/dynsec.js';
+import { requireAuth } from '../middleware/auth.js';
 import { classifyGateway } from '../../iot/health/monitor.js';
 import { ingestStats } from '../../iot/telemetry/ingestion.js';
 import { subscriberCount } from '../../realtime/hub.js';
@@ -77,6 +80,13 @@ export function createHealthRouter(): express.Router {
     const consumer = consumerStats();
     checks.mqttConsumer = { ok: !env.MQTT_ENABLED || consumer.started };
 
+    const control = dynsecState();
+    if (control.enabled) {
+      // Degraded, not unready: devices still connect and publish without it,
+      // only credential changes wait.
+      checks.brokerControl = { ok: control.connected, detail: control.connected ? 'connected' : 'disconnected' };
+    }
+
     const queue = ingestStats();
     checks.ingestQueue = {
       ok: queue.queued < env.INGEST_QUEUE_MAX * 0.9,
@@ -92,7 +102,10 @@ export function createHealthRouter(): express.Router {
     });
   });
 
-  router.get('/detail', async (_req, res) => {
+  // Signed-in only: device counts, database size, broker internals and the
+  // reconciliation report (which names credentials) are reconnaissance for
+  // anyone else. /live and /ready stay open for load balancers and uptime checks.
+  router.get('/detail', requireAuth, async (_req, res) => {
     const gateways = await listGateways();
     const meters = await listMeters();
     const now = Date.now();
@@ -114,6 +127,9 @@ export function createHealthRouter(): express.Router {
         broker: mqttDisplayUrl(),
         consumer: consumerStats(),
         embeddedBroker: brokerStatus(),
+        credentialAuthority: env.MQTT_BROKER_AUTH,
+        brokerControl: dynsecState(),
+        lastReconciliation: lastReconcileReport(),
       },
       ingest: {
         ...ingestStats(),

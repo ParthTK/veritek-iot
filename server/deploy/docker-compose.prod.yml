@@ -1,12 +1,12 @@
-# Production/staging stack: EMQX + TimescaleDB + backend + nginx + Prometheus +
-# Grafana + node-exporter.
+# Production/staging stack: Mosquitto + TimescaleDB + backend + nginx +
+# Prometheus + Grafana + node-exporter.
 #
 # Reproducible from this repository (spec section 23). Deployment:
 #
 #   ./deploy/scripts/gcp-bootstrap.sh deploy/env/staging.env
 #
-# which renders the broker config, issues the certificate, installs the renewal
-# and backup timers, and starts this stack. Secrets live in the env file, which
+# which initialises the broker's credential store, issues the certificate,
+# installs the renewal and backup timers, and starts this stack. Secrets live in the env file, which
 # is gitignored. Nothing secret is in this file.
 #
 # Certificate renewal and database backups run as host systemd timers rather
@@ -30,44 +30,37 @@ x-logging: &logging
 
 services:
   # ------------------------------------------------------------------ broker --
-  emqx:
-    image: emqx/emqx:5.8.8
+  mosquitto:
+    image: eclipse-mosquitto:${MOSQUITTO_VERSION:-2.1.2}
     <<: [*restart, *logging]
-    container_name: veritek-emqx
-    environment:
-      EMQX_NODE__NAME: "emqx@127.0.0.1"
-      EMQX_NODE__COOKIE: "${EMQX_NODE_COOKIE:?set EMQX_NODE_COOKIE}"
-      EMQX_DASHBOARD__DEFAULT_PASSWORD: "${EMQX_DASHBOARD_PASSWORD:?set EMQX_DASHBOARD_PASSWORD}"
-    # EMQX clamps max_connections to the file-descriptor limit, so the default
-    # 1024 would silently cap the broker far below its configured ceiling.
+    container_name: veritek-mosquitto
+    # Each connection is a file descriptor; the default 1024 would cap the
+    # broker far below max_connections.
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     volumes:
-      # Rendered from emqx.conf.template by render-emqx-config.sh; carries the
-      # webhook secret, so it is gitignored.
-      - ./emqx/etc/emqx.conf:/opt/emqx/etc/emqx.conf:ro
-      - ./emqx/etc/acl.conf:/opt/emqx/etc/acl.conf:ro
-      - ./certs:/opt/emqx/etc/certs:ro
-      - emqx-data:/opt/emqx/data
+      - ./mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./certs:/mosquitto/certs:ro
+      # Credentials (dynamic-security.json), sessions and queued messages.
+      # Backed up nightly: losing it locks every device out.
+      - mosquitto-data:/mosquitto/data
     ports:
-      # Public: TLS listener for gateways.
+      # Public: TLS listener for devices.
       - "8883:8883"
-      # 127.0.0.1 keeps plaintext off the internet. Set MQTT_PLAIN_BIND=0.0.0.0
-      # only for a commissioning window (spec section 3).
+      # 127.0.0.1 keeps plaintext off the internet. MQTT_PLAIN_BIND=0.0.0.0
+      # opens it for a commissioning window (credentials are still required).
       - "${MQTT_PLAIN_BIND:-127.0.0.1}:1883:1883"
-      # Dashboard: loopback only. Reach it over an SSH tunnel (section 16).
-      - "127.0.0.1:18083:18083"
     healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      # Credential-free: an anonymous CONNECT must come back "not authorised".
+      # That answer proves the broker is up, speaking MQTT and enforcing auth -
+      # and a broker that ever accepted it would fail this check.
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -t healthcheck -C 1 -W 5 -V mqttv311 2>&1 | grep -qi 'not authori'"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 60s
-    depends_on:
-      backend:
-        condition: service_healthy
+      retries: 3
+      start_period: 15s
 
   # ---------------------------------------------------------------- database --
   timescaledb:
@@ -108,12 +101,23 @@ services:
       DATABASE_URL: "postgres://${POSTGRES_USER:-veritek}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-veritek_iot}"
       # Broker leg stays inside the compose network; TLS is enforced on the
       # public 8883 listener.
-      MQTT_HOST: emqx
+      MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
       MQTT_TLS: "false"
       MQTT_USERNAME: "${MQTT_SERVICE_USERNAME:-energy-backend-ingestion}"
       MQTT_PASSWORD: "${MQTT_SERVICE_PASSWORD:?set MQTT_SERVICE_PASSWORD}"
       MQTT_CLIENT_ID: "veritek-backend-${DEPLOY_ENVIRONMENT:-production}"
+      # Persistent session: the broker queues QoS 1 readings for the backend
+      # while it restarts, instead of dropping them.
+      MQTT_CLEAN_SESSION: "false"
+      # Mosquitto holds the credentials; the backend manages them over the
+      # broker's control API with this separate admin identity.
+      MQTT_BROKER_AUTH: dynsec
+      MQTT_CONTROL_USERNAME: "${MQTT_CONTROL_USERNAME:-veritek-control}"
+      MQTT_CONTROL_PASSWORD: "${MQTT_CONTROL_PASSWORD:?set MQTT_CONTROL_PASSWORD}"
+      MQTT_CONTROL_CLIENT_ID: "veritek-control-${DEPLOY_ENVIRONMENT:-production}"
+      # EMQX's HTTP auth hooks; Mosquitto does not call them.
+      BROKER_WEBHOOK_ENABLED: "false"
       MQTT_TOPIC_ROOT: "${MQTT_TOPIC_ROOT:-energy/v1}"
       MQTT_VENDOR_TOPICS: "${MQTT_VENDOR_TOPICS:-}"
       MQTT_SUBSCRIBE_TOPICS: "${MQTT_SUBSCRIBE_TOPICS:-}"
@@ -148,6 +152,10 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+      # Started, not healthy: the backend retries the broker on its own, and
+      # the API and dashboard should come up even while the broker does not.
+      mosquitto:
+        condition: service_started
 
   # ----------------------------------------------------- demo data writer --
   # Optional, and off unless explicitly started:
@@ -250,7 +258,7 @@ services:
       - prometheus
 
 volumes:
-  emqx-data:
+  mosquitto-data:
   timescale-data:
   prometheus-data:
   grafana-data:

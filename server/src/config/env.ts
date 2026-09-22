@@ -228,6 +228,28 @@ const schema = z.object({
   /** Expose the auth/ACL webhooks at all. Off for a broker with static auth. */
   BROKER_WEBHOOK_ENABLED: bool(true),
 
+  /* ----------------------------------------- broker credential authority -- */
+  /**
+   * How the broker learns who may connect.
+   *
+   *   webhook - the broker asks this backend on every CONNECT/PUBLISH (EMQX,
+   *             and the embedded development broker, which checks directly);
+   *   dynsec  - Mosquitto's Dynamic Security plugin holds the credentials and
+   *             this backend pushes every change to it over $CONTROL.
+   */
+  MQTT_BROKER_AUTH: z
+    .enum(['webhook', 'dynsec'])
+    .optional()
+    .transform((value) => value ?? 'webhook'),
+  /** Broker-admin identity used only to manage credentials (dynsec mode). */
+  MQTT_CONTROL_USERNAME: optionalStr(),
+  MQTT_CONTROL_PASSWORD: optionalStr(),
+  MQTT_CONTROL_CLIENT_ID: str('veritek-control'),
+  /** Broker usernames the reconciler must leave alone (monitoring, break-glass). */
+  MQTT_BROKER_PROTECTED_USERS: csv([]),
+  /** How often the broker's directory is compared with the database. */
+  MQTT_BROKER_RECONCILE_SECONDS: int(300, 30, 86400),
+
   /* ------------------------------------------------ reconnect behaviour -- */
   // Exponential backoff with jitter, so a broker restart does not bring every
   // client back in the same millisecond (spec section 11).
@@ -296,7 +318,7 @@ export function productionConfigWarnings(): string[] {
   if (!isProduction) return warnings;
   if (env.JWT_SECRET === 'dev-only-change-me') warnings.push('JWT_SECRET is still the development default.');
   if (env.TOKEN_PEPPER === 'dev-only-change-me') warnings.push('TOKEN_PEPPER is still the development default.');
-  if (env.BROKER_WEBHOOK_SECRET === 'dev-only-change-me') {
+  if (env.BROKER_WEBHOOK_ENABLED && env.BROKER_WEBHOOK_SECRET === 'dev-only-change-me') {
     warnings.push('BROKER_WEBHOOK_SECRET is still the development default; anyone who reaches the broker webhooks could authorise a device.');
   }
   if (env.MQTT_PLAINTEXT_ENABLED) {
@@ -307,7 +329,14 @@ export function productionConfigWarnings(): string[] {
   }
   if (env.EMBEDDED_BROKER_ENABLED) warnings.push('EMBEDDED_BROKER_ENABLED is on; use a managed broker in production.');
   if (env.EMBEDDED_BROKER_ALLOW_ANONYMOUS) warnings.push('Anonymous MQTT access is enabled.');
-  if (!env.MQTT_TLS) warnings.push('MQTT_TLS is off; telemetry and credentials cross the network in clear text.');
+  // The backend's own leg to a broker on the same private network is fine in
+  // clear text; what matters is the devices' listener, which is TLS.
+  if (!env.MQTT_TLS && !['mosquitto', 'emqx', '127.0.0.1', 'localhost'].includes(env.MQTT_HOST)) {
+    warnings.push('MQTT_TLS is off to a remote broker; telemetry and credentials cross the network in clear text.');
+  }
+  if (env.MQTT_BROKER_AUTH === 'dynsec' && env.MQTT_CLEAN_SESSION) {
+    warnings.push('MQTT_CLEAN_SESSION is on; readings published while the backend restarts are dropped, not queued.');
+  }
   if (!env.INGEST_REQUIRE_AUTH) warnings.push('INGEST_REQUIRE_AUTH is off; the HTTP ingest endpoint is unauthenticated.');
   if (env.AUTO_PROVISION_GATEWAYS) warnings.push('AUTO_PROVISION_GATEWAYS is on; unknown devices will create their own records.');
   return warnings;

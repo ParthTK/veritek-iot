@@ -13,6 +13,7 @@ import {
   setGatewayCredentialsStatus,
 } from '../../db/repositories/mqttCredentials.js';
 import { audit } from '../../db/repositories/users.js';
+import { applyCredential, applyGatewayStatus, reconcileBroker } from '../mqtt/brokerDirectory.js';
 import { deviceAcl, serviceAcl, topicsFor } from '../mqtt/topics.js';
 
 const log = createLogger('devices:lifecycle');
@@ -27,8 +28,9 @@ const log = createLogger('devices:lifecycle');
  * Two invariants hold throughout:
  *
  *   1. losing access is immediate. Suspending, revoking or decommissioning a
- *      gateway flips its credentials in the same transaction, and the broker
- *      asks us on the next CONNECT - there is no cached allow to wait out;
+ *      gateway flips its credentials, and the change reaches the broker in the
+ *      same request - with EMQX because it asks us on the next CONNECT, with
+ *      Mosquitto because the change is pushed and any open session dropped;
  *   2. history is never destroyed. A decommissioned gateway keeps its telemetry
  *      and its raw packets; only its ability to connect goes away.
  */
@@ -137,6 +139,8 @@ export async function provisionGateway(input: ProvisionInput): Promise<Provision
     createdBy: input.actor ?? null,
     notes: 'Issued at provisioning.',
   });
+  // Before the password is handed out: one the broker does not know would not work.
+  await applyCredential(issued.credential, issued.password);
 
   await audit({
     actor: input.actor ?? null,
@@ -184,6 +188,27 @@ export function connectionProfileFor(gatewayUid: string): ProvisionResult['conne
   };
 }
 
+/**
+ * Carry a credential status change to the broker.
+ *
+ * The database change has already happened and is the record. If the broker
+ * cannot be reached, a full reconciliation is queued rather than failing the
+ * request: it re-applies every status on its next pass, so a suspension still
+ * lands, only later - and the failure is logged loudly because "later" matters
+ * for a compromised device.
+ */
+async function pushStatus(gatewayId: string): Promise<void> {
+  try {
+    await applyGatewayStatus(gatewayId);
+  } catch (error) {
+    log.error('credential status saved but not yet applied at the broker; retrying via reconciliation', {
+      gatewayId,
+      error,
+    });
+    setTimeout(() => void reconcileBroker(), 5_000).unref();
+  }
+}
+
 async function setLifecycleState(gatewayId: string, state: LifecycleState): Promise<void> {
   const now = nowIso();
   await db().execute(
@@ -199,6 +224,7 @@ async function setLifecycleState(gatewayId: string, state: LifecycleState): Prom
 export async function activateGateway(gatewayId: string, actor?: string | null): Promise<Gateway> {
   await setLifecycleState(gatewayId, 'active');
   await setGatewayCredentialsStatus(gatewayId, 'active');
+  await pushStatus(gatewayId);
   await db().execute('UPDATE gateways SET enabled = $2, updated_at = $3 WHERE id = $1', [gatewayId, true, nowIso()]);
   await audit({ actor: actor ?? null, action: 'gateway.activate', entityType: 'gateway', entityId: gatewayId });
 
@@ -216,6 +242,7 @@ export async function suspendGateway(
 ): Promise<Gateway> {
   await setLifecycleState(gatewayId, 'suspended');
   await setGatewayCredentialsStatus(gatewayId, 'suspended', reason);
+  await pushStatus(gatewayId);
   await audit({
     actor: actor ?? null,
     action: 'gateway.suspend',
@@ -238,6 +265,7 @@ export async function revokeGateway(
 ): Promise<Gateway> {
   await setLifecycleState(gatewayId, 'revoked');
   await setGatewayCredentialsStatus(gatewayId, 'revoked', reason);
+  await pushStatus(gatewayId);
   await db().execute('UPDATE gateways SET enabled = $2, updated_at = $3 WHERE id = $1', [gatewayId, false, nowIso()]);
   await audit({
     actor: actor ?? null,
@@ -257,6 +285,7 @@ export async function revokeGateway(
 export async function decommissionGateway(gatewayId: string, actor?: string | null): Promise<Gateway> {
   await setLifecycleState(gatewayId, 'decommissioned');
   await setGatewayCredentialsStatus(gatewayId, 'revoked', 'gateway decommissioned');
+  await pushStatus(gatewayId);
   await db().execute('UPDATE gateways SET enabled = $2, updated_at = $3 WHERE id = $1', [gatewayId, false, nowIso()]);
   // Meters are disabled, not deleted: their history stays queryable.
   await db().execute('UPDATE meters SET enabled = $2, updated_at = $3 WHERE gateway_id = $1', [
@@ -287,6 +316,7 @@ export async function rotateCredentials(
     createdBy: actor ?? null,
     notes: 'Rotated at ' + nowIso(),
   });
+  await applyCredential(issued.credential, issued.password);
 
   await audit({
     actor: actor ?? null,

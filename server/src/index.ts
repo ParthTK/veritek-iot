@@ -10,6 +10,8 @@ import { startAlertEngine } from './iot/alerts/engine.js';
 import { startHealthMonitor, stopHealthMonitor } from './iot/health/monitor.js';
 import { startEmbeddedBroker, stopEmbeddedBroker, devCredentials } from './iot/mqtt/broker.js';
 import { disconnectMqtt } from './iot/mqtt/client.js';
+import { reconcileBroker, startBrokerReconciler, stopBrokerReconciler } from './iot/mqtt/brokerDirectory.js';
+import { connectDynsec, disconnectDynsec, isDynsecEnabled, onDynsecConnect } from './iot/mqtt/dynsec.js';
 import { startConsumer, stopConsumer } from './iot/mqtt/consumer.js';
 import { GatewaySimulator } from './iot/simulator/simulator.js';
 import { startAggregationScheduler, stopAggregationScheduler } from './iot/telemetry/aggregation.js';
@@ -54,6 +56,22 @@ async function main(): Promise<void> {
   // Order matters: the embedded broker has to be listening before our own
   // client tries to connect to it.
   await startEmbeddedBroker();
+
+  // Mosquitto: the backend manages credentials over the broker's control API.
+  // This comes before the consumer, because the consumer's own login is one of
+  // the credentials the first reconciliation creates.
+  if (isDynsecEnabled()) {
+    onDynsecConnect(() => void reconcileBroker());
+    try {
+      await connectDynsec();
+    } catch (error) {
+      // Not fatal: the client keeps retrying, and reconciles when it gets in.
+      log.error('broker control client not connected yet; device credentials cannot change until it is', {
+        error,
+      });
+    }
+    startBrokerReconciler();
+  }
 
   /* -- 3. pipeline consumers --------------------------------------------- */
   startRealtimeBridge();
@@ -105,6 +123,8 @@ async function shutdown(signal: string): Promise<void> {
   closeRealtime();
 
   await simulator?.disconnect();
+  stopBrokerReconciler();
+  await disconnectDynsec();
   await disconnectMqtt();
   await stopEmbeddedBroker();
 

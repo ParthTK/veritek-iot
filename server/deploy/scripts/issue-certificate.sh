@@ -7,7 +7,7 @@
 # Uses the ACME http-01 challenge on port 80, so DNS must already resolve to
 # this host and 80 must be reachable. Renewal afterwards is automatic: the
 # certbot container renews twice a day and runs the deploy hook, which copies
-# the new files and reloads both nginx and EMQX.
+# the new files and reloads both nginx and Mosquitto.
 #
 # Self-signed certificates are not used here. A gateway that has to be told to
 # skip verification cannot tell a real broker from an impostor.
@@ -51,7 +51,7 @@ docker run --rm \
   "
 
 echo "[certs] restarting the services that hold the certificate"
-docker compose -f "$(dirname "$0")/../docker-compose.prod.yml" --env-file "$ENV_FILE" restart emqx nginx
+docker compose -f "$(dirname "$0")/../docker-compose.prod.yml" --env-file "$ENV_FILE" restart mosquitto nginx
 
 echo "[certs] verifying the live TLS listener"
 if command -v openssl >/dev/null 2>&1; then

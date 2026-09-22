@@ -9,13 +9,65 @@ groups:
   - name: veritek-infrastructure
     rules:
       - alert: MqttBrokerDown
-        expr: up{job="emqx"} == 0
+        # Both of the backend's broker connections down at once: the broker
+        # itself, not one client. (Either alone has its own alert below.)
+        expr: veritek_broker_control_connected == 0 and veritek_mqtt_connected == 0
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: "MQTT broker is unreachable"
-          description: "Prometheus cannot scrape EMQX. No gateway can deliver telemetry while this is true."
+          description: >-
+            Neither of the backend's connections to Mosquitto is up. No device
+            can deliver telemetry while this is true. Check
+            `docker logs veritek-mosquitto`.
+
+      - alert: BrokerControlDisconnected
+        expr: veritek_broker_control_connected == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend cannot manage broker credentials"
+          description: >-
+            Devices still connect and publish, but provisioning, suspending and
+            revoking a device will not reach the broker until this recovers.
+
+      - alert: BrokerCredentialMissing
+        expr: veritek_broker_missing_credentials > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Devices active in the database have no login at the broker"
+          description: >-
+            Usually a restored or replaced broker data volume. Those devices
+            cannot connect until their credentials are rotated. The list is in
+            /api/health/detail under lastReconciliation.missing.
+
+      - alert: BrokerUnknownClient
+        expr: veritek_broker_unknown_clients > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A broker login exists that the platform did not issue"
+          description: >-
+            It has been disabled automatically. Someone created it by hand, or
+            the credential store was tampered with. Investigate before deleting.
+
+      - alert: BrokerMessageBacklog
+        # Messages held for disconnected persistent sessions - above all the
+        # backend's, while it is down or not keeping up.
+        expr: veritek_broker_stat{stat="stored_messages"} > 50000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Broker is holding a large message backlog"
+          description: >-
+            Readings are queued rather than lost, but the queue is bounded
+            (max_queued_messages). Check that the backend consumer is connected.
 
       - alert: BackendDown
         expr: up{job="veritek-backend"} == 0
@@ -107,6 +159,10 @@ groups:
           summary: "95th percentile packet processing is over 2 seconds"
 
   - name: veritek-security
+    # These two count the broker's calls to the backend's auth webhooks, which
+    # only the EMQX / webhook mode makes. With Mosquitto (MQTT_BROKER_AUTH=dynsec)
+    # the broker decides on its own and records each refusal in its log:
+    #   docker logs veritek-mosquitto 2>&1 | grep -i "not authorised"
     rules:
       - alert: MqttAuthFailureSpike
         expr: sum(rate(veritek_mqtt_auth_failure_total[5m])) > 1

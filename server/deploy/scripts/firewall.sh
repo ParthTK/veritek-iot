@@ -8,7 +8,7 @@
 #      22  SSH    restricted to SSH_ALLOW_CIDR
 #    1883  MQTT   ONLY while a commissioning window is open
 #
-# Everything else - PostgreSQL, Prometheus, Grafana, the EMQX dashboard, the
+# Everything else - PostgreSQL, Prometheus, Grafana, the broker's internals, the
 # broker webhooks - stays on loopback or the compose network.
 #
 #   sudo ./deploy/scripts/firewall.sh                 # steady state

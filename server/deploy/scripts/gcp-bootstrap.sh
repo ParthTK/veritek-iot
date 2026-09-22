@@ -8,7 +8,7 @@
 # What it does, in order:
 #   1. reads deployment secrets from Google Secret Manager (never from git)
 #   2. writes deploy/env/<environment>.env, mode 600
-#   3. renders emqx.conf from its template
+#   3. initialises Mosquitto's credential store on first run
 #   4. obtains the TLS certificate (standalone, port 80 must be free)
 #   5. installs systemd timers for certificate renewal and database backups
 #   6. builds and starts the stack
@@ -63,17 +63,17 @@ secret() {
 
 log "reading secrets from Secret Manager"
 POSTGRES_PASSWORD="$(secret postgres-password)"
-EMQX_NODE_COOKIE="$(secret emqx-node-cookie)"
-EMQX_DASHBOARD_PASSWORD="$(secret emqx-dashboard-password)"
 BROKER_WEBHOOK_SECRET="$(secret broker-webhook-secret)"
 MQTT_SERVICE_PASSWORD="$(secret mqtt-service-password)"
+# Broker-admin identity the backend uses to create and revoke device logins.
+MQTT_CONTROL_PASSWORD="$(secret mqtt-control-password)"
 JWT_SECRET="$(secret jwt-secret)"
 TOKEN_PEPPER="$(secret token-pepper)"
 SEED_ADMIN_PASSWORD="$(secret seed-admin-password)"
 GRAFANA_ADMIN_PASSWORD="$(secret grafana-admin-password)"
 METRICS_TOKEN="$(secret metrics-token)"
 
-for name in POSTGRES_PASSWORD BROKER_WEBHOOK_SECRET JWT_SECRET TOKEN_PEPPER SEED_ADMIN_PASSWORD; do
+for name in POSTGRES_PASSWORD BROKER_WEBHOOK_SECRET MQTT_SERVICE_PASSWORD MQTT_CONTROL_PASSWORD JWT_SECRET TOKEN_PEPPER SEED_ADMIN_PASSWORD; do
   [ -n "${!name}" ] || { echo "secret $name is empty - check Secret Manager access" >&2; exit 1; }
 done
 
@@ -94,13 +94,13 @@ POSTGRES_USER=veritek
 POSTGRES_DB=veritek_iot
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
-EMQX_NODE_COOKIE=$EMQX_NODE_COOKIE
-EMQX_DASHBOARD_PASSWORD=$EMQX_DASHBOARD_PASSWORD
+MOSQUITTO_VERSION=2.1.2
 BROKER_WEBHOOK_SECRET=$BROKER_WEBHOOK_SECRET
-BACKEND_INTERNAL_URL=http://backend:4000
 
 MQTT_SERVICE_USERNAME=energy-backend-ingestion
 MQTT_SERVICE_PASSWORD=$MQTT_SERVICE_PASSWORD
+MQTT_CONTROL_USERNAME=veritek-control
+MQTT_CONTROL_PASSWORD=$MQTT_CONTROL_PASSWORD
 MQTT_TOPIC_ROOT=energy/v1
 MQTT_VENDOR_TOPICS=
 MQTT_SUBSCRIBE_TOPICS=
@@ -128,18 +128,30 @@ umask 022
 chmod 600 "$ENV_FILE"
 log "wrote $ENV_FILE"
 
-# ------------------------------------------------------ 3. render broker conf --
+# ------------------------------------------- 3. broker credential store --
 
-log "rendering emqx.conf"
-sed \
-  -e "s|__BROKER_WEBHOOK_SECRET__|$BROKER_WEBHOOK_SECRET|g" \
-  -e "s|__BACKEND_INTERNAL_URL__|http://backend:4000|g" \
-  -e "s|__MQTT_PUBLIC_HOST__|$MQTT_HOST_NAME|g" \
-  "$DEPLOY_DIR/emqx/etc/emqx.conf.template" > "$DEPLOY_DIR/emqx/etc/emqx.conf"
-# EMQX runs as uid 1000 inside its container and must be able to read its own
-# config; 640 owned by root would leave it unreadable and the broker crash-looping.
-chown 1000:1000 "$DEPLOY_DIR/emqx/etc/emqx.conf"
-chmod 640 "$DEPLOY_DIR/emqx/etc/emqx.conf"
+# Mosquitto's Dynamic Security plugin will not start without its store, and the
+# store needs one admin identity - the backend's control account - before
+# anything else can be created through it. Every other credential (the
+# backend's ingestion login, each device) is created by the backend over the
+# control API. Done once: an existing store holds every device's login and is
+# never overwritten.
+log "checking the Mosquitto credential store"
+if $COMPOSE run --rm --no-deps -T --entrypoint sh mosquitto \
+     -c 'test -s /mosquitto/data/dynamic-security.json' >/dev/null 2>&1; then
+  log "credential store present; leaving it untouched"
+else
+  log "initialising the credential store with the control identity"
+  # Passed through the environment rather than the command line, so the
+  # password is not in the host's process list.
+  $COMPOSE run --rm --no-deps -T \
+    -e DYNSEC_USER=veritek-control -e DYNSEC_PASS="$MQTT_CONTROL_PASSWORD" \
+    --entrypoint sh mosquitto -c '
+      mosquitto_ctrl dynsec init /mosquitto/data/dynamic-security.json "$DYNSEC_USER" "$DYNSEC_PASS" >/dev/null &&
+      chown -R mosquitto:mosquitto /mosquitto/data &&
+      chmod 600 /mosquitto/data/dynamic-security.json'
+  log "credential store initialised"
+fi
 
 # ------------------------------------------------------------ 4. certificate --
 
@@ -150,9 +162,9 @@ install_certs() {
   cp -L "$live/privkey.pem"   "$CERT_DIR/privkey.pem"
   cp -L "$live/chain.pem"     "$CERT_DIR/chain.pem"
   chmod 644 "$CERT_DIR/fullchain.pem" "$CERT_DIR/chain.pem"
-  # EMQX and the backend run as uid 1000 inside their containers and must be
-  # able to read the key; 640 with that owner keeps it off everyone else.
-  chown 1000:1000 "$CERT_DIR/privkey.pem"
+  # Readable by root (nginx's master process) and group 1883 - the mosquitto
+  # user inside its container - and by nothing else.
+  chown 0:1883 "$CERT_DIR/privkey.pem"
   chmod 640 "$CERT_DIR/privkey.pem"
 }
 
@@ -178,6 +190,13 @@ else
   log "certificate installed"
 fi
 
+# Applied every run, not only at issuance: a host migrating from the EMQX setup
+# still has a key owned for EMQX's uid, which Mosquitto cannot read.
+if [ -f "$CERT_DIR/privkey.pem" ]; then
+  chown 0:1883 "$CERT_DIR/privkey.pem"
+  chmod 640 "$CERT_DIR/privkey.pem"
+fi
+
 # --------------------------------------------- 5. renewal and backup timers --
 
 log "installing systemd timers"
@@ -186,7 +205,7 @@ cat > /usr/local/bin/veritek-cert-renew.sh <<RENEWEOF
 #!/bin/bash
 # Renew the TLS certificate and reload the services that hold it.
 #
-# Runs on the host, not in a container: reloading nginx and EMQX needs the
+# Runs on the host, not in a container: reloading nginx and Mosquitto needs the
 # Docker socket, and handing that to a container is handing it root.
 set -euo pipefail
 REPO_DIR="$REPO_DIR"
@@ -204,12 +223,12 @@ if [ -f "\$LIVE/fullchain.pem" ]; then
     cp -L "\$LIVE/privkey.pem"   "\$DEPLOY_DIR/certs/privkey.pem"
     cp -L "\$LIVE/chain.pem"     "\$DEPLOY_DIR/certs/chain.pem"
     chmod 644 "\$DEPLOY_DIR/certs/fullchain.pem" "\$DEPLOY_DIR/certs/chain.pem"
-    chown 1000:1000 "\$DEPLOY_DIR/certs/privkey.pem"
+    chown 0:1883 "\$DEPLOY_DIR/certs/privkey.pem"
     chmod 640 "\$DEPLOY_DIR/certs/privkey.pem"
-    # Reload rather than restart, so live gateway connections are not dropped.
     docker exec veritek-nginx nginx -s reload || true
-    docker exec veritek-emqx /opt/emqx/bin/emqx ctl listeners restart ssl:default || \\
-      docker restart veritek-emqx || true
+    # A few seconds' restart every ~60 days: devices reconnect with backoff,
+    # and sessions and queued messages are saved on the way down.
+    docker restart veritek-mosquitto || true
   fi
 fi
 RENEWEOF
@@ -245,7 +264,28 @@ if [ -n "\${BACKUP_BUCKET:-}" ]; then
   gcloud storage cp "\$FILE" "\$BACKUP_BUCKET/" --quiet && echo "[backup] uploaded to \$BACKUP_BUCKET"
 fi
 
+# The broker's credential store. Every device login lives in it; lose it and
+# every device is locked out until each one is re-credentialed by hand. It
+# holds salted hashes, never plaintext passwords.
+DYNSEC="\$BACKUP_DIR/veritek-dynsec-\${STAMP}.json.gz"
+if docker exec veritek-mosquitto cat /mosquitto/data/dynamic-security.json 2>/dev/null | gzip -9 > "\$DYNSEC" \\
+   && [ "\$(stat -c %s "\$DYNSEC")" -gt 100 ]; then
+  chmod 600 "\$DYNSEC"
+  echo "[backup] wrote \$DYNSEC"
+  if [ -n "\${BACKUP_BUCKET:-}" ]; then
+    gcloud storage cp "\$DYNSEC" "\$BACKUP_BUCKET/" --quiet && echo "[backup] uploaded broker credentials"
+  fi
+else
+  echo "[backup] FAILED: could not read the broker credential store" >&2
+  rm -f "\$DYNSEC"
+  DYNSEC_FAILED=1
+fi
+
 find "\$BACKUP_DIR" -name 'veritek-*.sql.gz' -mtime "+\${BACKUP_RETENTION_DAYS:-30}" -delete
+find "\$BACKUP_DIR" -name 'veritek-dynsec-*.json.gz' -mtime "+\${BACKUP_RETENTION_DAYS:-30}" -delete
+# Fail the unit after cleanup, so a broken credential backup shows up in
+# systemctl rather than scrolling past in a log.
+[ -z "\${DYNSEC_FAILED:-}" ]
 BACKUPEOF
 chmod +x /usr/local/bin/veritek-backup.sh
 
@@ -311,7 +351,9 @@ fi
 # -------------------------------------------------------------- 7. the stack --
 
 log "building and starting the stack"
-$COMPOSE up -d --build
+# --remove-orphans takes down any service this file no longer defines (the EMQX
+# broker Mosquitto replaced). Named volumes are left in place.
+$COMPOSE up -d --build --remove-orphans
 
 log "waiting for the backend to become ready"
 for _ in $(seq 1 60); do
