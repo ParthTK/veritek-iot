@@ -1,6 +1,6 @@
 # Deployment runbook
 
-Production IoT infrastructure for the energy platform: EMQX, TimescaleDB, the
+Production IoT infrastructure for the energy platform: Mosquitto, TimescaleDB, the
 backend, TLS, monitoring and backups. Everything is in this directory — no step
 of the deployment is a command someone once ran on a VM and did not write down.
 
@@ -16,9 +16,10 @@ Written for whoever is standing up or operating the cloud environment.
         ┌─────────────┼──────────────┐
         │ 443/tcp     │ 8883/tcp     │ (1883 only during commissioning)
         ▼             ▼              ▼
-     nginx          EMQX ◄───── gateways over 4G
+     nginx        Mosquitto ◄─── devices over 4G
         │             │
-        │      auth + ACL over HTTP
+        │      credentials managed
+        │      over $CONTROL
         │             ▼
         └────────► backend ──────► TimescaleDB   (never published)
                       │
@@ -26,9 +27,17 @@ Written for whoever is standing up or operating the cloud environment.
                       └──────────► backups ─────► off-instance storage
 ```
 
-The broker holds no password file and no per-device ACL file. It asks the
-backend on every connection, so provisioning a site is a database row and
-revoking one takes effect on the next connection attempt.
+Each device has its own login and may use only its own topics. Those live in
+Mosquitto's Dynamic Security store, and the backend manages them: provisioning a
+site is an API call, and suspending or revoking one reaches the broker in the
+same request and drops the session it has open.
+
+The broker decides on its own, so devices keep connecting and publishing while
+the backend is being redeployed — their QoS 1 messages queue for it and arrive
+when it comes back. The other side of that bargain is that the broker holds its
+own copy of each credential, so it is reconciled against the database on every
+startup, on every reconnect and every five minutes. `/api/health/detail` reports
+the last reconciliation.
 
 ---
 
@@ -76,7 +85,7 @@ sudo SSH_ALLOW_CIDR=203.0.113.0/24 ./deploy/scripts/firewall.sh
 ```
 
 Opens 22 (restricted), 80, 443 and 8883. Everything else — PostgreSQL,
-Prometheus, Grafana, the EMQX dashboard, the broker webhooks — is denied and
+Prometheus, Grafana and the database — is denied and
 bound to loopback or the compose network.
 
 ### 3. TLS certificate
@@ -87,14 +96,16 @@ sudo ./deploy/scripts/issue-certificate.sh deploy/env/production.env
 
 Requires DNS already resolving and port 80 reachable. Renewal afterwards is
 automatic; the certbot container renews twice a day and the deploy hook reloads
-nginx and the EMQX listener. Prometheus alerts if the certificate ever gets
+nginx and restarts Mosquitto. Prometheus alerts if the certificate ever gets
 within 21 days of expiry, which is what catches a renewal that has silently
 stopped working.
 
-### 4. Render the broker config and start
+### 4. Start the stack
+
+`gcp-bootstrap.sh` does this, including initialising the broker's credential
+store on first run. By hand:
 
 ```bash
-./deploy/scripts/render-emqx-config.sh deploy/env/production.env
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/env/production.env up -d
 docker compose -f deploy/docker-compose.prod.yml ps
 ```
@@ -107,7 +118,7 @@ a crash, and a host reboot.
 ```bash
 curl -s https://api.energy.<domain>/api/health/ready | jq
 echo | openssl s_client -connect mqtt.energy.<domain>:8883 | openssl x509 -noout -dates
-docker compose -f deploy/docker-compose.prod.yml logs -f backend emqx
+docker compose -f deploy/docker-compose.prod.yml logs -f backend mosquitto
 ```
 
 ### 6. Prove it end to end from outside
@@ -178,7 +189,7 @@ migration has to be undone.
 
 ```bash
 docker compose -f deploy/docker-compose.prod.yml restart backend   # no gateway disconnects
-docker compose -f deploy/docker-compose.prod.yml restart emqx      # gateways reconnect on their own
+docker compose -f deploy/docker-compose.prod.yml restart mosquitto # devices reconnect on their own
 ```
 
 Both are safe. The backend reconnects with exponential backoff and jitter, and
@@ -205,12 +216,19 @@ Run the restore test on a schedule. An unrestored backup is an assumption.
 Both UIs are bound to loopback. Reach them over an SSH tunnel:
 
 ```bash
-ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 18083:localhost:18083 user@host
+ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@host
 ```
 
 - Grafana <http://localhost:3000> — "VERITEK IoT — Connectivity and Ingestion"
 - Prometheus <http://localhost:9090> — alert rule state
-- EMQX dashboard <http://localhost:18083> — live connections and subscriptions
+Mosquitto has no admin UI. Its statistics are on the Grafana dashboard
+(`veritek_broker_stat`, re-exported by the backend from the broker's `$SYS`
+topics), and every connection, refusal and credential change is in its log:
+
+```bash
+docker logs veritek-mosquitto | grep -i "not authori"   # refused logins
+docker logs veritek-mosquitto | grep dynsec             # credential changes
+```
 
 Alert rules are in `prometheus/alerts.yml`. Point Alertmanager at email, Slack
 or PagerDuty; the rules and thresholds are already written.
@@ -258,16 +276,17 @@ echo | openssl s_client -connect mqtt.energy.<domain>:8883 | openssl x509 -noout
 
 | Control | Implementation |
 |---|---|
-| No anonymous MQTT | EMQX `allow_anonymous false` plus a webhook that refuses empty credentials |
-| Per-device credentials | one `mqtt_credentials` row per gateway, scrypt-hashed |
-| Topic isolation | per-credential ACL; `no_match = deny`, `deny_action = disconnect` |
+| No anonymous MQTT | Mosquitto `allow_anonymous false`; the container's healthcheck fails if an anonymous CONNECT is ever accepted |
+| Per-device credentials | one `mqtt_credentials` row per device, scrypt-hashed, mirrored to the broker's own store |
+| Topic isolation | one broker role per credential; subscriptions granted as literals, so a device cannot widen its own topic to a wildcard |
 | Backend account separate | `energy-backend-ingestion`, never a gateway credential, still ACL-bound |
 | TLS | Let's Encrypt on 8883 and 443, renewal automated and alerted |
 | Database private | `expose` only; never published, never reachable by a device |
-| Admin UIs private | Grafana, Prometheus and the EMQX dashboard on loopback |
+| Admin UIs private | Grafana and Prometheus on loopback; the broker has no admin UI to expose |
 | Rate and size limits | broker connection/message/byte rates, 1 MB packets, API token buckets |
-| Audit | every connection and denial in `mqtt_auth_events`; config changes in `audit_log` |
-| Secrets | environment only; `deploy/env/*.env` and the rendered `emqx.conf` are gitignored |
+| Audit | connections and refusals in the broker log; provisioning, suspension and revocation in `audit_log` |
+| Secrets | environment only, from Secret Manager; `deploy/env/*.env` is gitignored |
+| Credential store backed up | nightly with the database — losing it locks every device out |
 
 Verify with:
 
