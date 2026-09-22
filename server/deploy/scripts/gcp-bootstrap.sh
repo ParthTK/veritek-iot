@@ -58,7 +58,15 @@ log "mqtt=$MQTT_HOST_NAME api=$API_HOST_NAME"
 # ------------------------------------------------- 1-2. secrets and env file --
 
 secret() {
-  gcloud secrets versions access latest --secret="veritek-$1" --project="$PROJECT_ID" 2>/dev/null
+  # Under `set -e` a failed read ends the script inside a command substitution,
+  # with no output at all - so say which secret, and the usual reason.
+  local value
+  if ! value="$(gcloud secrets versions access latest --secret="veritek-$1" --project="$PROJECT_ID" 2>/dev/null)"; then
+    echo "[bootstrap] cannot read secret veritek-$1: it is missing, or this VM's service account" \
+         "has no roles/secretmanager.secretAccessor on it (access is granted per secret)" >&2
+    return 1
+  fi
+  printf '%s' "$value"
 }
 
 log "reading secrets from Secret Manager"
