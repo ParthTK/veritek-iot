@@ -511,6 +511,22 @@ export interface ProvisionResult {
   connection: ConnectionProfile;
   /** Shown once, never retrievable again. */
   mqttPassword: string;
+  /** Steps for this model that the platform cannot do for the installer. */
+  commissioningNotes?: string[];
+}
+
+export interface DeviceType {
+  id: string;
+  label: string;
+  summary: string;
+  /** Topics this model's firmware fixes, if any. */
+  fixedTopics: Record<string, string> | null;
+}
+
+/** The hardware the platform already knows how to read. */
+export async function fetchDeviceTypes(): Promise<DeviceType[]> {
+  const body = await request<{ deviceTypes: DeviceType[] }>('/api/provisioning/device-types');
+  return body.deviceTypes ?? [];
 }
 
 export interface ProvisionInput {
@@ -518,6 +534,8 @@ export interface ProvisionInput {
   name?: string;
   siteId?: string | null;
   hardwareModel?: string | null;
+  /** Which model, so its fixed topics and payload format are applied. */
+  deviceType?: string | null;
   /** Modbus slave ids on the device's RS485 bus. */
   slaveIds: number[];
 }
@@ -530,6 +548,7 @@ export async function provisionDevice(input: ProvisionInput): Promise<ProvisionR
       name: input.name,
       siteId: input.siteId ?? null,
       hardwareModel: input.hardwareModel ?? null,
+      deviceType: input.deviceType ?? null,
       meters: input.slaveIds.map((slaveId) => ({ slaveId })),
     }),
   });

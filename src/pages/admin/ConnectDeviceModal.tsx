@@ -6,10 +6,12 @@ import { Field, SelectInput, TextInput } from '@/components/ui/Form';
 import { listSites, refreshLiveData } from '@/services';
 import {
   fetchConnectionProfile,
+  fetchDeviceTypes,
   provisionDevice,
   revokeDevice,
   rotateDevicePassword,
   type ConnectionProfile,
+  type DeviceType,
   type ProvisionResult,
 } from '@/services/api';
 import type { Device } from '@/types';
@@ -88,9 +90,16 @@ export function ConnectDeviceModal({ open, onClose }: { open: boolean; onClose: 
   const [name, setName] = useState('');
   const [siteId, setSiteId] = useState(sites[0]?.id ?? '');
   const [slaves, setSlaves] = useState('1');
+  const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
+  const [deviceType, setDeviceType] = useState('generic');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ProvisionResult | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchDeviceTypes().then(setDeviceTypes, () => setDeviceTypes([]));
+  }, [open]);
 
   function reset() {
     setUid('');
@@ -122,6 +131,7 @@ export function ConnectDeviceModal({ open, onClose }: { open: boolean; onClose: 
         gatewayUid: uid.trim(),
         name: name.trim() || uid.trim(),
         siteId: siteId || null,
+        deviceType,
         slaveIds,
       });
       setResult(provisioned);
@@ -213,6 +223,22 @@ export function ConnectDeviceModal({ open, onClose }: { open: boolean; onClose: 
             </div>
           </section>
 
+          {result.commissioningNotes && result.commissioningNotes.length > 0 ? (
+            <section>
+              <h3 className="mb-1 text-theme-sm font-medium text-gray-800">Set on the device</h3>
+              <p className="mb-1 text-theme-2xs text-gray-500">
+                Steps for this model, over SMS or its command topic.
+              </p>
+              <ul className="grid gap-1.5 rounded-lg border border-gray-200 p-3">
+                {result.commissioningNotes.map((note) => (
+                  <li key={note} className="font-mono text-theme-2xs leading-relaxed text-gray-700">
+                    {note}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           <section>
             <h3 className="mb-1 text-theme-sm font-medium text-gray-800">Payload</h3>
             <p className="mb-1 text-theme-2xs text-gray-500">
@@ -248,6 +274,25 @@ export function ConnectDeviceModal({ open, onClose }: { open: boolean; onClose: 
               placeholder="Plant 1 — Main Incomer"
               onChange={(e) => setName(e.target.value)}
             />
+          </Field>
+
+          <Field
+            label="Device type"
+            htmlFor="connect-type"
+            hint={deviceTypes.find((type) => type.id === deviceType)?.summary}
+          >
+            <SelectInput
+              id="connect-type"
+              value={deviceType}
+              onChange={(e) => setDeviceType(e.target.value)}
+            >
+              {deviceTypes.length === 0 ? <option value="generic">Generic MQTT device</option> : null}
+              {deviceTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.label}
+                </option>
+              ))}
+            </SelectInput>
           </Field>
 
           <Field label="Site" htmlFor="connect-site">
