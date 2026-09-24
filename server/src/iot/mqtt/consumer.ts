@@ -4,11 +4,19 @@ import { LogEvent } from '../../core/logEvents.js';
 import { createLogger } from '../../core/logger.js';
 import { getGatewayByUid, setGatewayStatus, touchGatewaySeen } from '../../db/repositories/gateways.js';
 import { metrics } from '../../observability/metrics.js';
-import { topicMatches } from '../adapters/jsonPath.js';
+import { getByPathLoose, topicMatches } from '../adapters/jsonPath.js';
 import { ingest } from '../telemetry/ingestion.js';
 import { handleCommandResponse } from '../commands/commandService.js';
 import { connectMqtt } from './client.js';
-import { consumerSubscriptions, legacyResponseFilters, parseTopic } from './topics.js';
+import type { TopicKind } from './topics.js';
+import {
+  classifyForGateway,
+  consumerSubscriptions,
+  gatewayTopics,
+  legacyResponseFilters,
+  parseTopic,
+  topicOverridesFrom,
+} from './topics.js';
 
 const log = createLogger('mqtt:consumer');
 
@@ -90,7 +98,16 @@ async function handleMessage(topic: string, payload: Buffer, retained: boolean):
   metrics.mqttPayloadBytes.inc(payload.byteLength);
 
   try {
-    const parsed = parseTopic(topic);
+    let parsed = parseTopic(topic);
+
+    // Outside our namespace the topic alone cannot say what the message is.
+    // Ask the gateway: a device whose firmware fixes its topics has them
+    // recorded, so `{imei}/connection` is recognised as that device's status
+    // rather than guessed at from the word "connection".
+    if (!parsed.canonical) {
+      const vendor = await classifyVendorTopic(topic);
+      if (vendor) parsed = { gatewayId: vendor.gatewayUid, kind: vendor.kind, canonical: false };
+    }
 
     if (parsed.kind === 'status' && parsed.gatewayId) {
       metrics.mqttMessagesReceived.inc({ kind: 'status' });
@@ -151,7 +168,12 @@ async function handleStatusMessage(gatewayUid: string, payload: Buffer, retained
 
   try {
     const body = JSON.parse(text) as Record<string, unknown>;
-    const raw = body.status ?? body.state ?? body.online ?? body.connected;
+    // Loose lookup, because the key's spelling is the vendor's choice: the
+    // TIG-5 sends "Status", others send "state" or "online". An exact-case
+    // read of `body.status` silently sees nothing and the device looks mute.
+    const raw =
+      getByPathLoose(body, 'status') ?? getByPathLoose(body, 'state') ??
+      getByPathLoose(body, 'online') ?? getByPathLoose(body, 'connected');
     if (typeof raw === 'string') state = raw.toLowerCase();
     else if (typeof raw === 'boolean') state = raw ? 'online' : 'offline';
   } catch {
@@ -207,10 +229,27 @@ export function gatewayHintFromTopic(topic: string): string | null {
 
   const verbs = new Set([
     'telemetry', 'data', 'status', 'state', 'up', 'uplink', 'event',
-    'command', 'cmd', 'config', 'response', 'ack', 'gateways', 'v1',
+    'command', 'cmd', 'cmd-res', 'config', 'response', 'ack', 'connection', 'gateways', 'v1',
   ]);
-  const candidates = segments.slice(1).filter((segment) => !verbs.has(segment.toLowerCase()));
+  // Every segment is a candidate, including the first: plenty of devices lead
+  // with their own id (`862360079836107/data`), and skipping it left those
+  // packets with no identifier at all.
+  const candidates = segments.filter((segment) => !verbs.has(segment.toLowerCase()));
   return candidates[0] ?? null;
+}
+
+/** Match a non-canonical topic against the sending gateway's own topic set. */
+async function classifyVendorTopic(
+  topic: string,
+): Promise<{ gatewayUid: string; kind: TopicKind } | null> {
+  const hint = gatewayHintFromTopic(topic);
+  if (!hint) return null;
+
+  const gateway = await getGatewayByUid(hint);
+  if (!gateway) return null;
+
+  const kind = classifyForGateway(topic, gatewayTopics(gateway.gatewayUid, topicOverridesFrom(gateway.config)));
+  return kind ? { gatewayUid: gateway.gatewayUid, kind } : null;
 }
 
 export function stopConsumer(): void {

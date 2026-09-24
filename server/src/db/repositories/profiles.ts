@@ -52,6 +52,13 @@ export interface ProfileSpec {
   registerValueKey?: string;
   /** Treat unmapped numeric keys as metrics using their own name. */
   passthroughUnmapped?: boolean;
+  /**
+   * How to read a meter out of a measurement's name, for gateways that report
+   * several slaves in one flat object with no slave id of their own. A regular
+   * expression with named groups: `metric` plus `slave` or `meter`.
+   * Example: `^(?<metric>.+)_(?<slave>[0-9]+)$` splits `VRN_1` from `VRN_2`.
+   */
+  meterKeyPattern?: string;
 }
 
 export interface PayloadProfile {

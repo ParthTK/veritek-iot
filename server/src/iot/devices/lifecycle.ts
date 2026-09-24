@@ -1,4 +1,6 @@
 import { env } from '../../config/env.js';
+import type { DevicePreset } from '../../config/devicePresets.js';
+import { devicePreset } from '../../config/devicePresets.js';
 import { newId } from '../../core/hash.js';
 import { createLogger } from '../../core/logger.js';
 import { nowIso } from '../../core/time.js';
@@ -14,7 +16,7 @@ import {
 } from '../../db/repositories/mqttCredentials.js';
 import { audit } from '../../db/repositories/users.js';
 import { applyCredential, applyGatewayStatus, reconcileBroker } from '../mqtt/brokerDirectory.js';
-import { deviceAcl, serviceAcl, topicsFor } from '../mqtt/topics.js';
+import { deviceAcl, gatewayTopics, serviceAcl, topicOverridesFrom, topicsFor } from '../mqtt/topics.js';
 
 const log = createLogger('devices:lifecycle');
 
@@ -55,6 +57,11 @@ export interface ProvisionInput {
   meters?: Array<{ slaveId: number; meterName?: string; meterModelId?: string | null }>;
   /** Pin the MQTT client id the device must present. */
   clientIdPattern?: string | null;
+  /**
+   * Hardware model, from DEVICE_PRESETS. Decides the topics the firmware
+   * fixes and the payload profile its packets are read with.
+   */
+  deviceType?: string | null;
   actor?: string | null;
   notes?: string | null;
 }
@@ -65,6 +72,8 @@ export interface ProvisionResult {
   /** Shown once. Not stored, not retrievable, never returned to the frontend. */
   mqttPassword: string;
   topics: ReturnType<typeof topicsFor>;
+  /** Model-specific steps the platform cannot do for the installer. */
+  commissioningNotes?: string[];
   /** Everything an installer needs to type into the gateway, minus the secret. */
   connectionProfile: {
     host: string;
@@ -96,17 +105,26 @@ export async function provisionGateway(input: ProvisionInput): Promise<Provision
     );
   }
 
+  // A preset supplies the topics this model's firmware fixes and the profile
+  // its payload is read with. Without one, the device is expected to use our
+  // convention - which is what we ask for wherever the hardware allows it.
+  const preset = devicePreset(input.deviceType);
+  const profileId = preset?.profile ? (await ensurePresetProfile(preset.profile)) : null;
+  const topics = gatewayTopics(input.gatewayUid, preset?.topics);
+
   const gateway = await upsertGateway({
     gatewayUid: input.gatewayUid,
     name: input.name ?? input.gatewayUid,
     siteId: input.siteId ?? null,
-    hardwareModel: input.hardwareModel ?? null,
+    hardwareModel: input.hardwareModel ?? preset?.label ?? null,
     imei: input.imei ?? null,
     simNumber: input.simNumber ?? null,
     mqttUsername: input.gatewayUid,
     connectionType: 'MQTT',
     topicNamespace: topicsFor(input.gatewayUid).telemetry.replace(/\/telemetry$/, ''),
+    payloadProfileId: profileId,
     enabled: true,
+    config: preset?.topics ? { deviceType: preset.id, topics: preset.topics } : {},
     notes: input.notes ?? null,
   });
 
@@ -134,7 +152,7 @@ export async function provisionGateway(input: ProvisionInput): Promise<Provision
     gatewayUid: gateway.gatewayUid,
     mqttUsername: gateway.gatewayUid,
     kind: 'device',
-    acl: deviceAcl(gateway.gatewayUid),
+    acl: deviceAcl(gateway.gatewayUid, [], preset?.topics),
     clientIdPattern: input.clientIdPattern ?? null,
     createdBy: input.actor ?? null,
     notes: 'Issued at provisioning.',
@@ -164,14 +182,30 @@ export async function provisionGateway(input: ProvisionInput): Promise<Provision
     gateway: refreshed,
     credential: issued.credential,
     mqttPassword: issued.password,
-    topics: topicsFor(gateway.gatewayUid),
-    connectionProfile: connectionProfileFor(gateway.gatewayUid),
+    topics,
+    connectionProfile: connectionProfileFor(gateway.gatewayUid, preset?.topics),
+    commissioningNotes: preset?.commissioningNotes ?? [],
   };
 }
 
-/** The non-secret half of a device's connection settings. */
-export function connectionProfileFor(gatewayUid: string): ProvisionResult['connectionProfile'] {
-  const topics = topicsFor(gatewayUid);
+/** Create (or refresh) the payload profile a preset declares. */
+async function ensurePresetProfile(profile: NonNullable<DevicePreset['profile']>): Promise<string> {
+  const { upsertProfile } = await import('../../db/repositories/profiles.js');
+  const saved = await upsertProfile(profile);
+  return saved.id;
+}
+
+/**
+ * The non-secret half of a device's connection settings.
+ *
+ * `topicOverrides` are the gateway's stored ones, so the sheet an installer
+ * works from names the topics this particular device will actually use.
+ */
+export function connectionProfileFor(
+  gatewayUid: string,
+  topicOverrides?: unknown,
+): ProvisionResult['connectionProfile'] {
+  const topics = gatewayTopics(gatewayUid, topicOverrides);
   return {
     host: env.MQTT_PUBLIC_HOST || env.MQTT_HOST,
     tlsPort: env.MQTT_PUBLIC_TLS_PORT,
@@ -312,7 +346,9 @@ export async function rotateCredentials(
     gatewayUid: gateway.gatewayUid,
     mqttUsername: gateway.mqttUsername ?? gateway.gatewayUid,
     kind: 'device',
-    acl: deviceAcl(gateway.gatewayUid),
+    // Rebuilt from the gateway's own topics: a rotation must not quietly
+    // narrow a vendor device back to our convention and cut it off.
+    acl: deviceAcl(gateway.gatewayUid, [], topicOverridesFrom(gateway.config)),
     createdBy: actor ?? null,
     notes: 'Rotated at ' + nowIso(),
   });

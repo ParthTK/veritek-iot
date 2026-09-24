@@ -21,6 +21,8 @@ import {
   rotateCredentials,
   suspendGateway,
 } from '../../iot/devices/lifecycle.js';
+import { DEVICE_PRESETS } from '../../config/devicePresets.js';
+import { topicOverridesFrom } from '../../iot/mqtt/topics.js';
 import { requireRole } from '../middleware/auth.js';
 import { pathParam, stringParam } from '../rangeQuery.js';
 
@@ -70,7 +72,20 @@ export function createProvisioningRouter(): express.Router {
       )
       .optional(),
     clientIdPattern: z.string().nullish(),
+    deviceType: z.string().nullish(),
     notes: z.string().nullish(),
+  });
+
+  /** The hardware this platform already knows how to talk to. */
+  router.get('/device-types', (_req, res) => {
+    res.json({
+      deviceTypes: DEVICE_PRESETS.map((preset) => ({
+        id: preset.id,
+        label: preset.label,
+        summary: preset.summary,
+        fixedTopics: preset.topics ?? null,
+      })),
+    });
   });
 
   router.post('/gateways', async (req, res) => {
@@ -87,6 +102,7 @@ export function createProvisioningRouter(): express.Router {
         status: result.credential.status,
         acl: result.credential.acl,
       },
+      commissioningNotes: result.commissioningNotes ?? [],
       // The only time this value exists outside the device.
       mqttPassword: result.mqttPassword,
       note:
@@ -150,7 +166,7 @@ export function createProvisioningRouter(): express.Router {
         lifecycleState: gateway.lifecycleState,
         environment: gateway.environment,
       },
-      connection: connectionProfileFor(gateway.gatewayUid),
+      connection: connectionProfileFor(gateway.gatewayUid, topicOverridesFrom(gateway.config)),
       meters: meters.map((meter) => ({
         meterUid: meter.meterUid,
         meterName: meter.meterName,

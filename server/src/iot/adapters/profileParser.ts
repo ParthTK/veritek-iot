@@ -39,8 +39,7 @@ export function parseWithProfile(
   const packets: ParsedPacket[] = [];
 
   for (const document of documents) {
-    const packet = parseDocument(document.node, document.root, spec, options, warnings);
-    if (packet) packets.push(packet);
+    packets.push(...parseDocument(document.node, document.root, spec, options, warnings));
   }
   return { packets, warnings };
 }
@@ -78,8 +77,8 @@ function parseDocument(
   spec: ProfileSpec,
   options: ProfileParseOptions,
   warnings: string[],
-): ParsedPacket | null {
-  if (node === null || typeof node !== 'object') return null;
+): ParsedPacket[] {
+  if (node === null || typeof node !== 'object') return [];
 
   // Sample-level fields win; packet-level fields (gateway id, timestamp on the
   // envelope) are the fallback.
@@ -107,11 +106,15 @@ function parseDocument(
     warnings.push('Could not interpret timestamp value ' + JSON.stringify(timestampRaw).slice(0, 80) + '.');
   }
 
-  const values = collectMeasurements(node, root, spec, warnings);
+  // Raw names, still as the device wrote them: the key map runs after the
+  // meter split, on the name that is left once a `_1` suffix has been taken
+  // off. Mapping first would leave `VRN_1` matching no entry at all.
+  const rawValues = collectMeasurements(node, root, spec, warnings);
+  const values = applyKeyMap(rawValues, spec);
   const registerBlocks = collectRegisterBlocks(node, spec);
   const registerValues = collectRegisterValues(node, spec);
 
-  return {
+  const base = {
     gatewayUid,
     meterUid,
     slaveId,
@@ -125,7 +128,86 @@ function parseDocument(
     sequence: toInteger(read(spec.sequencePaths)),
     bufferedFlag: toBooleanOrNull(read(spec.bufferedFlagPaths)),
     extra: {},
-  };
+  } satisfies ParsedPacket;
+
+  const groups = splitByMeter(rawValues, spec, warnings);
+  if (!groups) return [base];
+
+  // Registers belong to the packet, not to any one meter; they stay on the
+  // first group so they are neither lost nor counted several times.
+  return groups.map((group, index) => ({
+    ...base,
+    slaveId: group.slaveId ?? slaveId,
+    meterUid: group.meterUid ?? meterUid,
+    values: applyKeyMap(group.values, spec),
+    registerBlocks: index === 0 ? registerBlocks : [],
+    registerValues: index === 0 ? registerValues : [],
+  }));
+}
+
+interface MeterGroup {
+  slaveId: number | null;
+  meterUid: string | null;
+  values: Record<string, number | string | boolean | null>;
+}
+
+/**
+ * Split one flat measurement object across several meters.
+ *
+ * Some gateways poll many Modbus slaves and report every value in a single
+ * object, with no slave id anywhere in the packet - the Technode TIG-5 does
+ * exactly this. All that distinguishes the readings is what the installer
+ * named them, so the profile carries a regular expression that says how to
+ * read a name: `^(?<metric>.+)_(?<slave>[0-9]+)$` turns `VRN_1` and `VRN_2` into
+ * the same metric on slaves 1 and 2.
+ *
+ * Returns null when the profile declares no pattern, which leaves the packet
+ * exactly as it was.
+ */
+function splitByMeter(
+  values: Record<string, number | string | boolean | null>,
+  spec: ProfileSpec,
+  warnings: string[],
+): MeterGroup[] | null {
+  const source = spec.meterKeyPattern?.trim();
+  if (!source) return null;
+  if (source.length > 200) {
+    warnings.push('meterKeyPattern is unreasonably long; ignoring it.');
+    return null;
+  }
+
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(source);
+  } catch {
+    warnings.push('meterKeyPattern is not a valid regular expression; ignoring it.');
+    return null;
+  }
+
+  const byMeter = new Map<string, MeterGroup>();
+  let matched = 0;
+
+  for (const [key, value] of Object.entries(values)) {
+    const groups = pattern.exec(key)?.groups;
+    // A key the pattern does not recognise still belongs to the gateway's
+    // default meter rather than being dropped.
+    const slaveText = groups?.slave;
+    const meterUid = groups?.meter ?? null;
+    const metric = groups?.metric ?? key;
+    const slaveId = slaveText !== undefined && /^\d+$/.test(slaveText) ? Number(slaveText) : null;
+    if (groups) matched += 1;
+
+    const id = meterUid ?? (slaveId === null ? '' : String(slaveId));
+    let group = byMeter.get(id);
+    if (!group) {
+      group = { slaveId, meterUid, values: {} };
+      byMeter.set(id, group);
+    }
+    group.values[metric] = value;
+  }
+
+  if (matched === 0) return null;
+  return [...byMeter.values()];
 }
 
 /**
@@ -158,7 +240,7 @@ function collectMeasurements(
       const value = record.value ?? record.val ?? record.v;
       out[name] = toScalar(value);
     }
-    return applyKeyMap(out, spec);
+    return out;
   }
 
   if (!container || typeof container !== 'object') {
@@ -175,7 +257,7 @@ function collectMeasurements(
     if (!declared && CONTROL_KEY_PATTERN.test(key)) continue;
     out[key] = toScalar(value);
   }
-  return applyKeyMap(out, spec);
+  return out;
 }
 
 function applyKeyMap(

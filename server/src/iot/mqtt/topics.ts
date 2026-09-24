@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { DEVICE_PRESETS } from '../../config/devicePresets.js';
 import { renderTemplate, topicMatches } from '../adapters/jsonPath.js';
 
 /**
@@ -52,6 +53,59 @@ export function topicsFor(gatewayId: string): TopicSet {
   };
 }
 
+/**
+ * Topics for one gateway, honouring topics its firmware will not let us change.
+ *
+ * Our convention is the default, but plenty of hardware publishes on a fixed
+ * topic of its own and cannot be pointed at ours - the Technode TIG-5, for
+ * instance, lets the data topic be set but hard-codes `{imei}/connection`,
+ * `{imei}/cmd` and `{imei}/cmd-res`. Storing the exceptions per gateway means
+ * such a device is a row in the registry rather than a special case in the
+ * consumer: its ACL, its command publishing and the routing of what it sends
+ * are all derived from the same four strings.
+ *
+ * Overrides are templates: `{gatewayUid}` is substituted.
+ */
+export function gatewayTopics(gatewayUid: string, overrides?: unknown): TopicSet {
+  const base = topicsFor(gatewayUid);
+  if (!overrides || typeof overrides !== 'object') return base;
+
+  const supplied = overrides as Partial<Record<TopicKind, unknown>>;
+  const resolve = (kind: TopicKind): string => {
+    const template = supplied[kind];
+    if (typeof template !== 'string' || !template.trim()) return base[kind];
+    return renderTemplate(template.trim(), { gatewayUid, gatewayId: gatewayUid });
+  };
+
+  return {
+    telemetry: resolve('telemetry'),
+    status: resolve('status'),
+    command: resolve('command'),
+    response: resolve('response'),
+  };
+}
+
+/** Pull the topic overrides out of a gateway's stored config, if any. */
+export function topicOverridesFrom(config: unknown): Record<string, string> | null {
+  if (!config || typeof config !== 'object') return null;
+  const topics = (config as { topics?: unknown }).topics;
+  if (!topics || typeof topics !== 'object') return null;
+  return topics as Record<string, string>;
+}
+
+/**
+ * Which of a gateway's topics this one is, if any.
+ *
+ * Used for messages that arrive outside our namespace, where the topic alone
+ * cannot say whether it carries telemetry or a status announcement.
+ */
+export function classifyForGateway(topic: string, topics: TopicSet): TopicKind | null {
+  for (const kind of ['telemetry', 'status', 'response', 'command'] as TopicKind[]) {
+    if (topics[kind] === topic) return kind;
+  }
+  return null;
+}
+
 /** Wildcard filters the backend service account subscribes to. */
 export function backendSubscriptions(): string[] {
   const base = root() + '/gateways/+';
@@ -74,12 +128,37 @@ export function legacyResponseFilters(): string[] {
 }
 
 /**
- * Everything the consumer listens to: the v1 namespace, plus any vendor-shaped
- * namespace still in play (during commissioning, or for a gateway whose topic
- * is not configurable), plus anything explicitly configured.
+ * Device-to-cloud topics that known hardware fixes in firmware, as wildcards.
+ *
+ * Derived from the presets rather than listed again here, because the backend's
+ * subscriptions and its own ACL are both built from this list: a preset whose
+ * status topic nothing subscribes to is a device that silently never comes
+ * online, and one the ACL does not grant is a backend the broker disconnects.
+ */
+export function presetSubscriptions(): string[] {
+  const filters = new Set<string>();
+  for (const preset of DEVICE_PRESETS) {
+    // Not `command`: the backend publishes those, it does not listen to them.
+    for (const kind of ['telemetry', 'status', 'response'] as const) {
+      const template = preset.topics?.[kind];
+      if (typeof template !== 'string' || !template.trim()) continue;
+      filters.add(template.trim().replace(/\{gatewayUid\}/g, '+'));
+    }
+  }
+  // Anything already inside our own namespace is covered by backendSubscriptions().
+  for (const filter of backendSubscriptions()) filters.delete(filter);
+  return [...filters];
+}
+
+/**
+ * Everything the consumer listens to: the v1 namespace, the fixed topics of
+ * hardware we know about, plus any vendor namespace still in play (during
+ * commissioning, or for a gateway whose topic is not configurable) and
+ * anything explicitly configured.
  */
 export function consumerSubscriptions(): string[] {
   const filters = new Set<string>(backendSubscriptions());
+  for (const filter of presetSubscriptions()) filters.add(filter);
   for (const filter of env.MQTT_VENDOR_TOPICS) filters.add(filter);
   for (const filter of env.MQTT_SUBSCRIBE_TOPICS) filters.add(filter);
   for (const filter of legacyResponseFilters()) filters.add(filter);
@@ -121,10 +200,17 @@ export interface AclSpec {
  * command topic. It cannot read another gateway, publish as another gateway, or
  * subscribe to a wildcard.
  */
-export function deviceAcl(gatewayId: string, extraPublish: string[] = []): AclSpec {
-  const topics = topicsFor(gatewayId);
+export function deviceAcl(
+  gatewayId: string,
+  extraPublish: string[] = [],
+  overrides?: unknown,
+): AclSpec {
+  // Built from the gateway's own topics, so a device on a vendor-fixed topic
+  // is granted exactly that topic and still nothing else.
+  const topics = gatewayTopics(gatewayId, overrides);
+  const publish = new Set([topics.telemetry, topics.status, topics.response, ...extraPublish]);
   return {
-    publish: [topics.telemetry, topics.status, topics.response, ...extraPublish],
+    publish: [...publish],
     subscribe: [topics.command],
   };
 }

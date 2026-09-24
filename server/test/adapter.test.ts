@@ -4,6 +4,7 @@ import { sampleFingerprint } from '../src/core/hash.js';
 import type { ProfileSpec } from '../src/db/repositories/profiles.js';
 import { flattenPaths, getByPathLoose, topicMatches } from '../src/iot/adapters/jsonPath.js';
 import { parseWithProfile } from '../src/iot/adapters/profileParser.js';
+import { aclAllows, deviceAcl } from '../src/iot/mqtt/topics.js';
 
 /**
  * The adapter has to cope with a payload shape nobody has seen yet, so these
@@ -184,4 +185,87 @@ test('an empty or alien payload yields no packets instead of throwing', () => {
   assert.doesNotThrow(() => parseWithProfile({}, {}, options));
   assert.doesNotThrow(() => parseWithProfile({ totally: { unexpected: [1, 2, 3] } }, {}, options));
   assert.doesNotThrow(() => parseWithProfile(null, {}, options));
+});
+
+/* ------------------------------------------------ vendor payload shapes -- */
+
+import { DEVICE_PRESETS } from '../src/config/devicePresets.js';
+
+const TIG5 = DEVICE_PRESETS.find((preset) => preset.id === 'technode-tig5')!;
+
+/** A packet in the shape the TIG-5 manual documents. */
+const tig5Packet = {
+  ID: '862360074067189',
+  Status: 'Online',
+  Signal: 83,
+  Location: 'PUMP STATION',
+  data: { VRN: 238.7, IR: 14.2, KW: 9.87, PF: 0.962, FREQ: 50.02, KWH: 15432.5 },
+  TS: '1778332093',
+  DT: '2026-03-31 12:33:21',
+};
+
+test('a TIG-5 packet is read without touching any code', () => {
+  const { packets, warnings } = parseWithProfile(tig5Packet, TIG5.profile!.spec!, {
+    defaultOffsetMinutes: 330,
+  });
+
+  assert.equal(packets.length, 1);
+  const packet = packets[0]!;
+  assert.equal(packet.gatewayUid, '862360074067189');
+  // Epoch seconds arriving as a string, not a number.
+  assert.equal(packet.sourceTimestamp, new Date(1778332093 * 1000).toISOString());
+  // Its variable names become our metric keys...
+  assert.equal(packet.values.voltage_l1, 238.7);
+  assert.equal(packet.values.current_l1, 14.2);
+  assert.equal(packet.values.active_power_kw, 9.87);
+  assert.equal(packet.values.energy_import_kwh, 15432.5);
+  // ...and the envelope is not mistaken for a measurement.
+  assert.equal(packet.values.Signal, undefined);
+  assert.equal(packet.values.Location, undefined);
+  assert.deepEqual(warnings, []);
+});
+
+test('an unknown variable name is kept rather than dropped', () => {
+  const { packets } = parseWithProfile(
+    { ...tig5Packet, data: { ...tig5Packet.data, FLOWRATE: 102.56 } },
+    TIG5.profile!.spec!,
+    { defaultOffsetMinutes: 330 },
+  );
+  // Surfaced under its own name for the commissioning screen to map.
+  assert.equal(packets[0]!.values.FLOWRATE, 102.56);
+});
+
+test('one flat payload splits across the meters its names encode', () => {
+  const spec = { ...TIG5.profile!.spec!, meterKeyPattern: '^(?<metric>.+)_(?<slave>[0-9]+)$' };
+  const { packets } = parseWithProfile(
+    {
+      ...tig5Packet,
+      data: { VRN_1: 238.7, KWH_1: 15432.5, VRN_2: 241.1, KWH_2: 8801.2, SIGNAL: 83 },
+    },
+    spec,
+    { defaultOffsetMinutes: 330 },
+  );
+
+  const bySlave = new Map(packets.map((packet) => [packet.slaveId, packet]));
+  assert.equal(packets.length, 3, 'slave 1, slave 2, and the unnamed remainder');
+  assert.equal(bySlave.get(1)!.values.voltage_l1, 238.7);
+  assert.equal(bySlave.get(1)!.values.energy_import_kwh, 15432.5);
+  assert.equal(bySlave.get(2)!.values.voltage_l1, 241.1);
+  assert.equal(bySlave.get(2)!.values.energy_import_kwh, 8801.2);
+  // Every packet still carries the same measurement time and gateway.
+  assert.ok(packets.every((packet) => packet.gatewayUid === '862360074067189'));
+  assert.ok(packets.every((packet) => packet.sourceTimestamp === packets[0]!.sourceTimestamp));
+});
+
+test('a device on vendor-fixed topics is granted those and nothing wider', () => {
+  const acl = deviceAcl('862360074067189', [], TIG5.topics);
+  assert.deepEqual(acl.publish.sort(), [
+    '862360074067189/cmd-res',
+    '862360074067189/connection',
+    'energy/v1/gateways/862360074067189/telemetry',
+  ]);
+  assert.deepEqual(acl.subscribe, ['862360074067189/cmd']);
+  // Its neighbour's fixed topics are not covered by a loose prefix.
+  assert.ok(!aclAllows(acl.publish, '862360074067190/connection'));
+  assert.ok(!aclAllows(acl.subscribe, '862360074067190/cmd'));
 });
