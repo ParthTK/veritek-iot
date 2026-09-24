@@ -53,7 +53,7 @@ Mandatory. Anonymous connections are refused.
 
 | | |
 |---|---|
-| MQTT version | 3.1.1 or 5.0 (both tested against this broker) |
+| MQTT version | 3.1, 3.1.1 or 5.0 (all three tested against this broker) |
 | Client ID | The device ID |
 | QoS | **1** — at-least-once. Duplicates are detected and discarded, so a retry can never double-count energy. QoS 0 works but loses readings on a dropped link |
 | Clean session | `false`, so commands sent while the device was offline are still delivered |
@@ -154,11 +154,72 @@ The device appears on our dashboard within a minute of its first reading.
 
 ---
 
-## What we need from you
+## The device: Technode TIG-5
 
-To confirm the device works with this endpoint as-is, or to adapt our side to it:
+We have the TIG-5 manual (V1.1) and the platform is configured for it. From the
+manual, this is what matches and what still needs confirming.
 
-1. Does the device support **TLS 1.2 with SNI**? Can it load a custom root CA, and which roots ship with it — `ISRG Root X1`, `ISRG Root X2`, both?
+**Confirmed from the manual — no problem:**
+
+| | |
+|---|---|
+| MQTT v3.1 | Our broker accepts it (tested: 3.1, 3.1.1 and 5 all connect) |
+| Broker address | Accepts a domain name, max 90 characters. Ours is 30 |
+| Username / password | Supported via `SET MQTT CONFIG` |
+| Data topic | Configurable, so the unit publishes on our namespace |
+| Payload | `{"ID","Status","Signal","Location","data":{…},"TS","DT"}` — the platform reads this shape as it is |
+| Offline buffering | `DATA_BUFFER_ENABLED=1` |
+| Modbus register map | Datatype, byte order, scaling and function code all map onto what we already store |
+
+**Commands to set on the unit** (SMS, or published to `<imei>/cmd`):
+
+```
+SET MQTT CONFIG#mqtt.8-231-120-125.sslip.io,8883,<username>,<password>
+SET DATA TOPIC#energy/v1/gateways/<imei>/telemetry
+SET GATEWAY CONFIG#<location>,<apn>,<upload seconds>,1,1,0
+```
+
+The username and password are the ones we issue per device; provision the unit
+under its **IMEI**, since that is what it reports as `"ID"`.
+
+The last two `1`s are RTC calibration and offline buffering — please leave both
+on. Readings are filed at the time they were measured, so an accurate clock and
+a buffer that survives an outage are what keep history correct.
+
+Its other three topics are fixed in firmware and we have allowed for them as they
+are — `<imei>/connection`, `<imei>/cmd`, `<imei>/cmd-res`. Nothing to change there.
+
+**Still to confirm — four questions:**
+
+1. **TLS on 8883.** The manual names the port but documents no certificate or CA
+   setting, and `SET MQTT CONFIG` has no TLS flag. Does the unit negotiate TLS
+   when the port is 8883? If it does, does it validate the server certificate,
+   and against which root store? Ours is an ECDSA chain under `ISRG Root X2`.
+   If it cannot do TLS at all, say so plainly — we will keep a plaintext port
+   open for it, but we need to know that is what we are running.
+2. **Buffered readings.** When the link returns and the unit flushes its buffer,
+   does each record keep the `TS` from when it was measured, or does it get the
+   time it was sent? This decides whether an outage leaves a gap or fills in
+   correctly.
+3. **QoS.** What QoS does it publish at? QoS 1 means a reading survives a dropped
+   link; at QoS 0 it is gone. Is it settable?
+4. **Multiple meters.** With more than one meter on the RS485 bus, everything
+   lands in one flat `data` object with no slave id. We handle that by reading
+   the slave from the variable name — so please name them `VRN_1`, `KWH_1`,
+   `VRN_2`, `KWH_2` and so on, one suffix per meter. Confirm the nine-character
+   limit allows the names you need.
+
+Also useful, whenever convenient: **one real captured packet** from a unit wired
+to an actual energy meter. The variable names are the installer's choice, so a
+real packet tells us the names in use rather than the ones we assumed.
+
+---
+
+## What we need from you (any other hardware)
+
+If a different model is used instead:
+
+1. Does it support **TLS 1.2 with SNI**? Can it load a custom root CA, and which roots ship with it — `ISRG Root X1`, `ISRG Root X2`, both?
 2. Does it support **MQTT username and password** authentication?
 3. Is the **publish topic configurable**, or fixed by firmware? If fixed, what is it?
 4. Is the **payload configurable or documented**? One real captured packet is worth more than a schema.

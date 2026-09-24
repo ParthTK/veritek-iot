@@ -43,7 +43,7 @@ curl -sX POST https://api.<your-host>/api/provisioning/gateways \
 | Username | the device ID |
 | Password | issued at provisioning |
 | Client ID | the device ID |
-| Protocol | MQTT 3.1.1 or 5 |
+| Protocol | MQTT 3.1, 3.1.1 or 5 |
 | Clean session | `false`, so commands sent while it was offline are still delivered |
 | Keepalive | 60 s is a good default on cellular |
 | QoS | **1** for telemetry — at-least-once. The platform discards duplicates, so a retry can never double-count energy |
