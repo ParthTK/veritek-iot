@@ -13,6 +13,7 @@ import {
   setNotifications,
 } from '@/services';
 import { useStore } from '@/hooks/useStore';
+import { SHOWS_DEMO } from '@/services/dataMode';
 import { useToast } from '@/hooks/useToast';
 import type { GeneralSettings, NotificationSettings } from '@/types';
 import { cn } from '@/utils/cn';
@@ -305,14 +306,26 @@ export function SettingsPage() {
           <CardHeader
             icon={<Database size={15} className="text-brand-600" aria-hidden />}
             title="System preferences"
-            description="Demo data lives in this browser's localStorage"
+            description={
+              SHOWS_DEMO
+                ? "Demo data lives in this browser's localStorage"
+                : 'Devices, readings, sites and users come from the server'
+            }
           />
           <CardBody>
             <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
-                ['Environment', 'Frontend demo (no backend)'],
-                ['Data source', 'Local mock datasets'],
-                ['Persistence', 'Browser localStorage'],
+                ...(SHOWS_DEMO
+                  ? [
+                      ['Environment', 'Frontend demo (no backend)'],
+                      ['Data source', 'Local mock datasets'],
+                      ['Persistence', 'Browser localStorage'],
+                    ]
+                  : [
+                      ['Environment', 'Live'],
+                      ['Data source', 'VERITEK server'],
+                      ['Persistence', 'Server database; these settings in this browser'],
+                    ]),
                 ['Platform version', 'v1.0.0'],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-gray-200 px-3 py-2.5">
@@ -322,6 +335,7 @@ export function SettingsPage() {
               ))}
             </dl>
 
+            {SHOWS_DEMO ? (
             <div className="mt-5 rounded-lg border border-error-200 bg-error-25 px-4 py-3.5">
               <h3 className="text-theme-sm font-semibold text-gray-800">Reset demo data</h3>
               <p className="mt-1 max-w-2xl text-theme-xs text-gray-600">
@@ -338,6 +352,7 @@ export function SettingsPage() {
                 Reset demo data
               </Button>
             </div>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}

@@ -1,10 +1,10 @@
 import express from 'express';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
-import { unauthorized } from '../../core/errors.js';
+import { badRequest, unauthorized } from '../../core/errors.js';
 import { LogEvent } from '../../core/logEvents.js';
 import { createLogger } from '../../core/logger.js';
-import { audit, authenticate } from '../../db/repositories/users.js';
+import { audit, authenticate, getUser, upsertUser } from '../../db/repositories/users.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 
@@ -45,6 +45,34 @@ export function createAuthRouter(): express.Router {
 
   router.get('/me', requireAuth, (req, res) => {
     res.json({ user: req.user ?? null, authEnabled: env.AUTH_ENABLED });
+  });
+
+  const passwordSchema = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8),
+  });
+
+  /** Change your own password. Needs the current one, whoever is signed in. */
+  router.post('/password', requireAuth, loginLimiter, async (req, res) => {
+    const { currentPassword, newPassword } = passwordSchema.parse(req.body);
+    const me = req.user ? await getUser(req.user.id) : null;
+    if (!me) throw unauthorized();
+
+    // 400 rather than 401: the session is fine, only the old password is wrong.
+    if (!(await authenticate(me.email, currentPassword))) throw badRequest('Current password is incorrect.');
+
+    await upsertUser({
+      id: me.id,
+      name: me.name,
+      email: me.email,
+      phone: me.phone,
+      role: me.role,
+      active: me.active,
+      assignedSites: me.assignedSites,
+      password: newPassword,
+    });
+    await audit({ actor: me.id, action: 'auth.password', entityType: 'user', entityId: me.id, ip: req.ip ?? null });
+    res.json({ ok: true });
   });
 
   return router;

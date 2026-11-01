@@ -18,6 +18,7 @@ import {
   saveUser,
   siteName,
   toggleUserActive,
+  usersAreOnServer,
 } from '@/services';
 import { useStore } from '@/hooks/useStore';
 import { useToast } from '@/hooks/useToast';
@@ -73,6 +74,14 @@ export function UsersPage() {
   const [readOnly, setReadOnly] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pendingDelete, setPendingDelete] = useState<User | null>(null);
+  // Only asked for when creating an account on the server, which cannot sign in without one.
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const needsPassword = isNew && usersAreOnServer();
+
+  function failed(title: string, error: unknown) {
+    toast(title, { description: error instanceof Error ? error.message : undefined, variant: 'error' });
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -94,10 +103,11 @@ export function UsersPage() {
     setIsNew(user === null);
     setReadOnly(view);
     setErrors({});
+    setPassword('');
     setOpen(true);
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const next: Record<string, string> = {};
     if (!draft.name.trim()) next.name = 'Name is required.';
@@ -107,13 +117,24 @@ export function UsersPage() {
     if (!draft.phone.trim()) next.phone = 'Phone number is required.';
     if (users.some((u) => u.email.toLowerCase() === draft.email.trim().toLowerCase() && u.id !== draft.id))
       next.email = 'Another user already uses this email address.';
+    if (needsPassword && password.length < 8) next.password = 'Use at least 8 characters.';
 
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    saveUser({ ...draft, avatarInitials: initialsFor(draft.name) });
-    toast(isNew ? 'User added' : 'User updated', { description: draft.name });
-    setOpen(false);
+    setSaving(true);
+    try {
+      await saveUser(
+        { ...draft, email: draft.email.trim(), avatarInitials: initialsFor(draft.name) },
+        needsPassword ? password : undefined,
+      );
+      toast(isNew ? 'User added' : 'User updated', { description: draft.name });
+      setOpen(false);
+    } catch (error) {
+      failed('Could not save the user', error);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function toggleSite(siteId: string) {
@@ -192,11 +213,14 @@ export function UsersPage() {
           <Toggle
             checked={u.active}
             onChange={() => {
-              toggleUserActive(u.id);
-              toast(u.active ? 'User deactivated' : 'User activated', {
-                description: u.name,
-                variant: u.active ? 'warning' : 'success',
-              });
+              toggleUserActive(u.id).then(
+                () =>
+                  toast(u.active ? 'User deactivated' : 'User activated', {
+                    description: u.name,
+                    variant: u.active ? 'warning' : 'success',
+                  }),
+                (error: unknown) => failed('Could not change the user', error),
+              );
             }}
             label={`${u.active ? 'Deactivate' : 'Activate'} ${u.name}`}
             hideLabel
@@ -354,12 +378,14 @@ export function UsersPage() {
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit}>Save User</Button>
+              <Button onClick={(e) => void handleSubmit(e)} loading={saving}>
+                Save User
+              </Button>
             </>
           )
         }
       >
-        <form onSubmit={handleSubmit} noValidate>
+        <form onSubmit={(e) => void handleSubmit(e)} noValidate>
           <fieldset disabled={readOnly} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Full Name" htmlFor="u-name" required error={errors.name}>
@@ -401,6 +427,24 @@ export function UsersPage() {
                   ))}
                 </SelectInput>
               </Field>
+              {needsPassword ? (
+                <Field
+                  label="Password"
+                  htmlFor="u-password"
+                  required
+                  error={errors.password}
+                  hint="They sign in with this. At least 8 characters."
+                >
+                  <TextInput
+                    id="u-password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    invalid={Boolean(errors.password)}
+                  />
+                </Field>
+              ) : null}
             </div>
 
             <fieldset>
@@ -458,14 +502,17 @@ export function UsersPage() {
         onClose={() => setPendingDelete(null)}
         onConfirm={() => {
           if (pendingDelete) {
-            deleteUser(pendingDelete.id);
-            toast('User deleted', { description: pendingDelete.name, variant: 'info' });
+            const removed = pendingDelete;
+            deleteUser(removed.id).then(
+              () => toast('User deleted', { description: removed.name, variant: 'info' }),
+              (error: unknown) => failed('Could not delete the user', error),
+            );
           }
         }}
         title="Delete user?"
         message={
           pendingDelete
-            ? `"${pendingDelete.name}" will lose access. This only affects local demo data.`
+            ? `"${pendingDelete.name}" will lose access.`
             : ''
         }
         confirmLabel="Delete user"

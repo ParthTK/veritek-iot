@@ -8,11 +8,10 @@ import { Field, TextInput } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
-import { saveUser, siteName } from '@/services';
-import { DEMO_CREDENTIALS } from '@/data/seed';
+import { changePassword as savePassword, saveUser, siteName } from '@/services';
 import { formatDateTime } from '@/utils/format';
 
-/** Profile details plus a change-password form (validated, no backend). */
+/** Profile details plus a change-password form. */
 export function ProfilePage() {
   const { user, updateUser, signOut } = useAuth();
   const { toast } = useToast();
@@ -26,10 +25,11 @@ export function ProfilePage() {
   const [confirm, setConfirm] = useState('');
   const [show, setShow] = useState(false);
   const [pwErrors, setPwErrors] = useState<Record<string, string>>({});
+  const [pwSaving, setPwSaving] = useState(false);
 
   if (!user) return null;
 
-  function saveProfile(e: FormEvent) {
+  async function saveProfile(e: FormEvent) {
     e.preventDefault();
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = 'Name is required.';
@@ -38,17 +38,22 @@ export function ProfilePage() {
     if (Object.keys(errors).length > 0) return;
 
     const updated = { ...user!, name: name.trim(), phone: phone.trim() };
-    saveUser(updated);
-    updateUser(updated);
-    toast('Profile updated', { description: 'Your details were saved.' });
+    try {
+      await saveUser(updated);
+      updateUser(updated);
+      toast('Profile updated', { description: 'Your details were saved.' });
+    } catch (error) {
+      toast('Could not save your details', {
+        description: error instanceof Error ? error.message : undefined,
+        variant: 'error',
+      });
+    }
   }
 
-  function changePassword(e: FormEvent) {
+  async function changePassword(e: FormEvent) {
     e.preventDefault();
     const errors: Record<string, string> = {};
     if (!current) errors.current = 'Enter your current password.';
-    else if (current !== DEMO_CREDENTIALS.password)
-      errors.current = 'Current password is incorrect.';
     if (!next) errors.next = 'Enter a new password.';
     else if (next.length < 8) errors.next = 'Use at least 8 characters.';
     else if (next === current) errors.next = 'New password must differ from the current one.';
@@ -57,13 +62,19 @@ export function ProfilePage() {
     setPwErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    setCurrent('');
-    setNext('');
-    setConfirm('');
-    toast('Password changed', {
-      description: 'In this demo the change is not persisted — the original password still works.',
-      variant: 'info',
-    });
+    setPwSaving(true);
+    try {
+      await savePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      toast('Password changed', { description: 'Use the new password next time you sign in.' });
+    } catch (error) {
+      // The server checks the current password; its answer goes under that field.
+      setPwErrors({ current: error instanceof Error ? error.message : 'Could not change the password.' });
+    } finally {
+      setPwSaving(false);
+    }
   }
 
   return (
@@ -111,7 +122,7 @@ export function ProfilePage() {
         </Card>
 
         <div className="space-y-5 xl:col-span-2">
-          <form onSubmit={saveProfile}>
+          <form onSubmit={(e) => void saveProfile(e)}>
             <Card>
               <CardHeader title="Profile details" description="Update your contact information" />
               <CardBody>
@@ -146,11 +157,11 @@ export function ProfilePage() {
             </Card>
           </form>
 
-          <form onSubmit={changePassword}>
+          <form onSubmit={(e) => void changePassword(e)}>
             <Card>
               <CardHeader
                 title="Change password"
-                description={`Demo password is "${DEMO_CREDENTIALS.password}"`}
+                description="At least 8 characters."
               />
               <CardBody>
                 <div className="grid gap-4 sm:grid-cols-3">
@@ -206,7 +217,7 @@ export function ProfilePage() {
                   </Field>
                 </div>
                 <div className="mt-5 flex justify-end">
-                  <Button type="submit">Update password</Button>
+                  <Button type="submit" loading={pwSaving}>Update password</Button>
                 </div>
               </CardBody>
             </Card>

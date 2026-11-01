@@ -8,6 +8,7 @@ import type {
   DeviceThresholds,
   Meter,
   Reading,
+  Site,
   User,
 } from '@/types';
 
@@ -112,25 +113,92 @@ function initials(name: string): string {
     .join('');
 }
 
+type ApiUser = LoginResponse['user'];
+
+function mapUser(user: ApiUser): User {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone ?? '',
+    role: user.role,
+    assignedSites: user.assignedSites ?? [],
+    assignedDevices: [],
+    active: user.active,
+    lastLogin: user.lastLoginAt,
+    avatarInitials: initials(user.name),
+  };
+}
+
 export async function apiLogin(email: string, password: string): Promise<User> {
   const body = await request<LoginResponse>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
   setToken(body.token);
+  return mapUser(body.user);
+}
 
-  return {
-    id: body.user.id,
-    name: body.user.name,
-    email: body.user.email,
-    phone: body.user.phone ?? '',
-    role: body.user.role,
-    assignedSites: body.user.assignedSites ?? [],
-    assignedDevices: [],
-    active: body.user.active,
-    lastLogin: body.user.lastLoginAt,
-    avatarInitials: initials(body.user.name),
-  };
+/** Change the signed-in user's own password. */
+export async function apiChangePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await request('/api/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+/* ------------------------------------------------------------ sites/users -- */
+
+interface ApiSite {
+  id: string;
+  name: string;
+  code: string | null;
+  city: string | null;
+  state: string | null;
+  address: string | null;
+}
+
+export async function fetchSites(): Promise<Site[]> {
+  const body = await request<{ sites: ApiSite[] }>('/api/sites');
+  return (body.sites ?? []).map((site) => ({
+    id: site.id,
+    name: site.name,
+    code: site.code ?? '',
+    city: site.city ?? '',
+    state: site.state ?? '',
+    address: site.address ?? '',
+  }));
+}
+
+/** Every account. Admins only - anyone else is refused by the server. */
+export async function fetchUsers(): Promise<User[]> {
+  const body = await request<{ users: ApiUser[] }>('/api/admin/users');
+  return (body.users ?? []).map(mapUser);
+}
+
+/**
+ * Create or update an account. Every field is sent, because the server resets
+ * any it is not given. A new account needs a password; an existing one keeps
+ * its own unless a new one is passed.
+ */
+export async function saveApiUser(user: User, password?: string): Promise<void> {
+  await request('/api/admin/users', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || null,
+      role: user.role,
+      active: user.active,
+      assignedSites: user.assignedSites,
+      ...(password ? { password } : {}),
+    }),
+  });
+}
+
+export async function deleteApiUser(id: string): Promise<void> {
+  await request('/api/admin/users/' + id, { method: 'DELETE' });
 }
 
 export function apiLogout(): void {

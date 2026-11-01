@@ -5,6 +5,7 @@ import {
   GENERAL_SETTINGS,
   METERS,
   NOTIFICATION_SETTINGS,
+  SITES,
   USERS,
 } from '@/data/seed';
 import type {
@@ -15,6 +16,7 @@ import type {
   GeneralSettings,
   Meter,
   NotificationSettings,
+  Site,
   User,
 } from '@/types';
 import { DATA_MODE, SHOWS_DEMO } from './dataMode';
@@ -59,16 +61,40 @@ interface StoreShape {
   liveMeters: Meter[];
   liveAlerts: Alert[];
   demoAlerts: Alert[];
+  /** Sites and accounts, split the same way as devices. */
+  sites: Site[];
+  demoSites: Site[];
+  liveSites: Site[];
   users: User[];
+  demoUsers: User[];
+  liveUsers: User[];
   alerts: Alert[];
   triggers: AlertTrigger[];
   notifications: NotificationSettings;
   general: GeneralSettings;
 }
 
+/**
+ * Settings are kept in this browser. In live mode the demo organisation's name
+ * and phone number must not appear as if they were this estate's, including in
+ * a copy saved before live mode was switched on.
+ */
+function initialGeneral(): GeneralSettings {
+  const stored = readStore(STORAGE_KEYS.general, GENERAL_SETTINGS);
+  if (SHOWS_DEMO || stored.organisationName !== GENERAL_SETTINGS.organisationName) return stored;
+  return { ...stored, organisationName: 'VERITEK' };
+}
+
+function initialNotifications(): NotificationSettings {
+  const stored = readStore(STORAGE_KEYS.notifications, NOTIFICATION_SETTINGS);
+  if (SHOWS_DEMO || stored.recipientPhone !== NOTIFICATION_SETTINGS.recipientPhone) return stored;
+  return { ...stored, recipientPhone: '' };
+}
+
 function loadState(): StoreShape {
   const demoDevices = readStore(STORAGE_KEYS.devices, DEVICES);
   const demoMeters = readStore(STORAGE_KEYS.meters, METERS);
+  const demoUsers = readStore(STORAGE_KEYS.users, USERS);
   return {
     demoDevices,
     demoMeters,
@@ -78,11 +104,16 @@ function loadState(): StoreShape {
     demoAlerts: readStore(STORAGE_KEYS.alerts, ALERTS),
     devices: SHOWS_DEMO ? demoDevices : [],
     meters: SHOWS_DEMO ? demoMeters : [],
-    users: readStore(STORAGE_KEYS.users, USERS),
+    demoSites: SITES,
+    liveSites: [],
+    sites: SHOWS_DEMO ? SITES : [],
+    demoUsers,
+    liveUsers: [],
+    users: SHOWS_DEMO ? demoUsers : [],
     alerts: readStore(STORAGE_KEYS.alerts, ALERTS),
     triggers: readStore(STORAGE_KEYS.triggers, ALERT_TRIGGERS),
-    notifications: readStore(STORAGE_KEYS.notifications, NOTIFICATION_SETTINGS),
-    general: readStore(STORAGE_KEYS.general, GENERAL_SETTINGS),
+    notifications: initialNotifications(),
+    general: initialGeneral(),
     readings: {},
     version: 0,
     liveDataLoaded: false,
@@ -133,7 +164,15 @@ function combined(next: StoreShape): StoreShape {
   const alerts = DATA_MODE === 'demo' ? next.demoAlerts
     : DATA_MODE === 'live' ? next.liveAlerts
     : [...next.liveAlerts, ...next.demoAlerts];
-  return { ...next, devices, meters, alerts };
+  const sites = DATA_MODE === 'demo' ? next.demoSites
+    : DATA_MODE === 'live' ? next.liveSites
+    : [...next.liveSites, ...next.demoSites.filter((site) => !next.liveSites.some((live) => live.id === site.id))];
+  // An address is one account: the server's record wins over a fixture with the same email.
+  const liveEmails = new Set(next.liveUsers.map((user) => user.email.toLowerCase()));
+  const users = DATA_MODE === 'demo' ? next.demoUsers
+    : DATA_MODE === 'live' ? next.liveUsers
+    : [...next.liveUsers, ...next.demoUsers.filter((user) => !liveEmails.has(user.email.toLowerCase()))];
+  return { ...next, devices, meters, alerts, sites, users };
 }
 
 export function setDevices(devices: Device[]): void {
@@ -149,8 +188,23 @@ export function setMeters(meters: Meter[]): void {
 }
 
 export function setUsers(users: User[]): void {
-  state = { ...state, users };
+  state = combined({ ...state, demoUsers: users });
   writeStore(STORAGE_KEYS.users, users);
+  emit();
+}
+
+/** Accounts the backend holds. Never persisted: it is the server's record. */
+export function setLiveUsers(users: User[]): void {
+  state = combined({ ...state, liveUsers: users });
+  emit();
+}
+
+export function isLiveUser(id: string): boolean {
+  return state.liveUsers.some((user) => user.id === id);
+}
+
+export function setLiveSites(sites: Site[]): void {
+  state = combined({ ...state, liveSites: sites });
   emit();
 }
 
@@ -223,7 +277,7 @@ export function resetDemoData(): void {
   writeStore(STORAGE_KEYS.seedVersion, SEED_VERSION);
   // Live devices are the backend's record, not demo data: a reset restores the
   // fixtures and leaves them alone.
-  const { liveDevices, liveMeters, liveAlerts, liveDataLoaded } = state;
-  state = combined({ ...loadState(), liveDevices, liveMeters, liveAlerts, liveDataLoaded });
+  const { liveDevices, liveMeters, liveAlerts, liveSites, liveUsers, liveDataLoaded } = state;
+  state = combined({ ...loadState(), liveDevices, liveMeters, liveAlerts, liveSites, liveUsers, liveDataLoaded });
   emit();
 }

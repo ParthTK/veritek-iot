@@ -1,5 +1,5 @@
-import { DIAGNOSTIC_EVENTS, SITES } from '@/data/seed';
-import { USES_BACKEND } from './dataMode';
+import { DIAGNOSTIC_EVENTS } from '@/data/seed';
+import { DATA_MODE, SHOWS_DEMO, USES_BACKEND } from './dataMode';
 import {
   dailyBuckets,
   generateReadings,
@@ -22,13 +22,18 @@ import type {
 import { STORAGE_KEYS, readStore, removeStore, writeStore } from './storage';
 import {
   ApiError,
+  apiChangePassword,
   apiLogin,
   apiLogout,
+  deleteApiUser,
   fetchAlerts,
   fetchBuckets,
   fetchDevicesAndMeters,
   fetchReadings,
+  fetchSites,
+  fetchUsers,
   getToken,
+  saveApiUser,
   openTelemetryStream,
   updateAlertStatus,
 } from './api';
@@ -38,8 +43,11 @@ import {
   setDevices,
   isLiveAlert,
   isLiveMeter,
+  isLiveUser,
   setLiveAlerts,
   setLiveDevicesAndMeters,
+  setLiveSites,
+  setLiveUsers,
   setMeters,
   setReadings,
   setTriggers,
@@ -110,11 +118,11 @@ export function updateSessionUser(user: User): void {
 /* ----------------------------------------------------------------- sites -- */
 
 export function listSites(): Site[] {
-  return SITES;
+  return getState().sites;
 }
 
 export function getSite(id: string): Site | undefined {
-  return SITES.find((s) => s.id === id);
+  return getState().sites.find((s) => s.id === id);
 }
 
 export function siteName(id: string): string {
@@ -353,6 +361,8 @@ export function deleteTrigger(id: string): void {
 /* ----------------------------------------------------------- diagnostics -- */
 
 export function listDiagnosticEvents(deviceId?: string): DiagnosticEvent[] {
+  // These are bundled examples; the backend keeps no such event log yet.
+  if (!SHOWS_DEMO) return [];
   return deviceId
     ? DIAGNOSTIC_EVENTS.filter((e) => e.deviceId === deviceId)
     : DIAGNOSTIC_EVENTS;
@@ -368,19 +378,56 @@ export function getUser(id: string): User | undefined {
   return getState().users.find((u) => u.id === id);
 }
 
-export function saveUser(user: User): void {
-  const users = getState().users;
-  const index = users.findIndex((u) => u.id === user.id);
-  if (index === -1) setUsers([...users, user]);
-  else setUsers(users.map((u) => (u.id === user.id ? user : u)));
+/** True when new accounts are created on the server, and so need a password. */
+export function usersAreOnServer(): boolean {
+  return USES_BACKEND && DATA_MODE === 'live';
 }
 
-export function deleteUser(id: string): void {
-  setUsers(getState().users.filter((u) => u.id !== id));
+/** In live mode every account is the server's; in mixed mode only those it already holds. */
+function isServerUser(id: string): boolean {
+  return USES_BACKEND && (DATA_MODE === 'live' || isLiveUser(id));
 }
 
-export function toggleUserActive(id: string): void {
-  setUsers(getState().users.map((u) => (u.id === id ? { ...u, active: !u.active } : u)));
+/**
+ * Save an account. Server accounts are updated on screen at once, then
+ * re-read, so a refusal (a duplicate email, a missing password) shows as the
+ * error it is rather than as a change that silently did not stick.
+ */
+export async function saveUser(user: User, password?: string): Promise<void> {
+  if (!isServerUser(user.id)) {
+    const users = getState().demoUsers;
+    const index = users.findIndex((u) => u.id === user.id);
+    if (index === -1) setUsers([...users, user]);
+    else setUsers(users.map((u) => (u.id === user.id ? user : u)));
+    return;
+  }
+  try {
+    await saveApiUser(user, password);
+  } finally {
+    await refreshUsers();
+  }
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  if (!isServerUser(id)) {
+    setUsers(getState().demoUsers.filter((u) => u.id !== id));
+    return;
+  }
+  try {
+    await deleteApiUser(id);
+  } finally {
+    await refreshUsers();
+  }
+}
+
+export async function toggleUserActive(id: string): Promise<void> {
+  const user = getState().users.find((u) => u.id === id);
+  if (user) await saveUser({ ...user, active: !user.active });
+}
+
+/** Change the signed-in user's own password on the server. */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiChangePassword(currentPassword, newPassword);
 }
 
 export function createUserId(): string {
@@ -405,7 +452,25 @@ export async function refreshLiveData(): Promise<void> {
     // Offline or signed out. The last known estate stays on screen rather than
     // the dashboard emptying itself.
   }
+  try {
+    setLiveSites(await fetchSites());
+  } catch {
+    /* keep what we have */
+  }
+  await refreshUsers();
   await refreshAlerts();
+}
+
+export async function refreshUsers(): Promise<void> {
+  if (!USES_BACKEND) return;
+  if (!getToken()) return;
+  try {
+    setLiveUsers(await fetchUsers());
+  } catch {
+    // Only admins may list accounts. Anyone else still sees themselves.
+    const me = getSession()?.user;
+    if (me && getState().liveUsers.length === 0) setLiveUsers([me]);
+  }
 }
 
 export async function refreshAlerts(): Promise<void> {
