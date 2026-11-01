@@ -59,6 +59,12 @@ export interface ProfileSpec {
    * Example: `^(?<metric>.+)_(?<slave>[0-9]+)$` splits `VRN_1` from `VRN_2`.
    */
   meterKeyPattern?: string;
+  /**
+   * Where an object of per-meter readings lives, keyed by Modbus slave id:
+   * `{"1": {"name": "EM-1", "VRN": 231.2}, "2": {...}}`. Each entry becomes its
+   * own packet; `name` is the installer's label for the meter, not a reading.
+   */
+  meterGroupPaths?: string[];
 }
 
 export interface PayloadProfile {

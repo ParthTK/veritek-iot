@@ -38,8 +38,13 @@ export async function parsePayload(
 ): Promise<AdapterResult> {
   const allProfiles = await listProfiles();
 
+  // A profile pinned to a gateway was chosen for it by hand, so it applies even
+  // when disabled - `enabled` only decides whether a profile may claim traffic
+  // by shape, which is exactly what a preset's profile must never do.
   const scoped = options.profileId
-    ? allProfiles.filter((profile) => profile.id === options.profileId)
+    ? allProfiles
+        .filter((profile) => profile.id === options.profileId)
+        .map((profile) => ({ ...profile, enabled: true }))
     : allProfiles;
 
   const vendor =

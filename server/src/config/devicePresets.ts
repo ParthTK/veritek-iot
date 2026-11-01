@@ -118,6 +118,52 @@ export const DEVICE_PRESETS: DevicePreset[] = [
       'The device publishes its own IMEI as "ID". Provision it under that IMEI so the two agree.',
     ],
   },
+  {
+    id: 'technode-tig6',
+    label: 'Technode TIG-6 (Wi-Fi Modbus gateway)',
+    summary:
+      'Wi-Fi version of the TIG-5. Broker and login are set on its own setup page; all four of ' +
+      'its topics are fixed in firmware and granted as they are.',
+    topics: {
+      telemetry: '{gatewayUid}/data',
+      status: '{gatewayUid}/connection',
+      command: '{gatewayUid}/cmd',
+      response: '{gatewayUid}/cmd-res',
+    },
+    profile: {
+      name: 'technode_tig6_v1',
+      vendor: 'veritek',
+      version: 1,
+      enabled: false,
+      priority: 20,
+      // Checked against packets from a real unit (firmware 1.1, 20/06/2026).
+      verified: true,
+      matchRules: {},
+      spec: {
+        gatewayIdPaths: ['ID'],
+        // TS is local time encoded as if it were UTC, so it reads 5h30 ahead.
+        // DT is the same instant written plainly in local time.
+        timestampPaths: ['DT'],
+        timestampFormat: 'auto',
+        assumeUtcOffset: '+05:30',
+        // Cascade style: one object per slave under `data`, keyed by slave id.
+        meterGroupPaths: ['data'],
+        measurementPaths: ['data'],
+        slaveIdPaths: [],
+        keyMap: TIG5_KEY_MAP,
+        passthroughUnmapped: true,
+      },
+      notes:
+        'Technode TIG-6. Payload: {"ID","status","signal","location","data":{"<slave>":{"name",...}},"TS","DT"}. ' +
+        'A reading the meter did not answer arrives as a string such as "TIMEOUT" or "INV_ADDR" instead of a number.',
+    },
+    commissioningNotes: [
+      "Join the gateway's own Wi-Fi hotspot and open 192.168.4.1. The Device ID is printed at the top of that page.",
+      'Choose the site Wi-Fi, then set Broker = <broker host>, Port = 1883, Username = <device id>, Password = the one shown here. Save, then Reboot.',
+      'The setup page has no TLS option, so this unit uses plain port 1883.',
+      'Meter polling is set over the command topic, e.g. SET PORT CONFIG#9600,E,1,800,0,0,25 and one SET MB CONFIG#... line per reading.',
+    ],
+  },
 ];
 
 export function devicePreset(id: string | null | undefined): DevicePreset | null {

@@ -130,7 +130,7 @@ function parseDocument(
     extra: {},
   } satisfies ParsedPacket;
 
-  const groups = splitByMeter(rawValues, spec, warnings);
+  const groups = collectMeterGroups(node, root, spec) ?? splitByMeter(rawValues, spec, warnings);
   if (!groups) return [base];
 
   // Registers belong to the packet, not to any one meter; they stay on the
@@ -208,6 +208,32 @@ function splitByMeter(
 
   if (matched === 0) return null;
   return [...byMeter.values()];
+}
+
+/**
+ * Read readings that arrive already grouped by meter.
+ *
+ * The Technode TIG-6 in its cascade JSON style nests each slave's values under
+ * its slave id - `"data": {"1": {"name": "VIPS70", "VRN": 205.5}}` - so the
+ * meter is in the structure rather than in the names. Returns null when the
+ * profile declares no such path, or the payload has none.
+ */
+function collectMeterGroups(node: unknown, root: unknown, spec: ProfileSpec): MeterGroup[] | null {
+  const hit = firstHit(node, spec.meterGroupPaths) ?? (node === root ? null : firstHit(root, spec.meterGroupPaths));
+  if (!hit || !hit.value || typeof hit.value !== 'object' || Array.isArray(hit.value)) return null;
+
+  const groups: MeterGroup[] = [];
+  for (const [key, entry] of Object.entries(hit.value as Record<string, unknown>)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const values: Record<string, number | string | boolean | null> = {};
+    for (const [name, value] of Object.entries(entry as Record<string, unknown>)) {
+      if (value !== null && typeof value === 'object') continue;
+      if (/^name$/i.test(name)) continue;
+      values[name] = toScalar(value);
+    }
+    groups.push({ slaveId: /^\d+$/.test(key) ? Number(key) : null, meterUid: null, values });
+  }
+  return groups.length ? groups : null;
 }
 
 /**

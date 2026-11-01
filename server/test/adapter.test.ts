@@ -269,3 +269,59 @@ test('a device on vendor-fixed topics is granted those and nothing wider', () =>
   assert.ok(!aclAllows(acl.publish, '862360074067190/connection'));
   assert.ok(!aclAllows(acl.subscribe, '862360074067190/cmd'));
 });
+
+const TIG6 = DEVICE_PRESETS.find((preset) => preset.id === 'technode-tig6')!;
+
+/** A packet captured from a real TIG-6 polling a Veritek VIPS 70 at slave 1. */
+const tig6Packet = {
+  ID: '54B691182EC8',
+  status: 'Online',
+  signal: 100,
+  location: 'INDIA',
+  data: { '1': { name: 'VIPS70', VRN: 205.55, VTHD_R: 0.038, VRY: 0, IR: 0 } },
+  TS: '1793199677',
+  DT: '2026-10-28 15:01:17',
+};
+
+test('a TIG-6 cascade packet becomes one packet per slave', () => {
+  const { packets } = parseWithProfile(
+    { ...tig6Packet, data: { ...tig6Packet.data, '2': { name: 'EM-2', VRN: 231.4, KWH: 812.5 } } },
+    TIG6.profile!.spec!,
+    { defaultOffsetMinutes: 0 },
+  );
+
+  const bySlave = new Map(packets.map((packet) => [packet.slaveId, packet]));
+  assert.equal(packets.length, 2);
+  assert.equal(bySlave.get(1)!.values.voltage_l1, 205.55);
+  assert.equal(bySlave.get(1)!.values.voltage_l12, 0);
+  assert.equal(bySlave.get(1)!.values.VTHD_R, 0.038);
+  assert.equal(bySlave.get(2)!.values.energy_import_kwh, 812.5);
+  // The installer's label for the meter is not a reading.
+  assert.ok(packets.every((packet) => !('name' in packet.values)));
+  assert.ok(packets.every((packet) => packet.gatewayUid === '54B691182EC8'));
+});
+
+test('a TIG-6 is timed by its local DT, not its shifted TS', () => {
+  const { packets } = parseWithProfile(tig6Packet, TIG6.profile!.spec!, { defaultOffsetMinutes: 0 });
+  // 15:01:17 IST, whatever offset the server would otherwise assume.
+  assert.equal(packets[0]!.sourceTimestamp, '2026-10-28T09:31:17.000Z');
+});
+
+test('a TIG-6 polling no meters yet stores nothing', () => {
+  const { packets } = parseWithProfile({ ...tig6Packet, data: {} }, TIG6.profile!.spec!, {
+    defaultOffsetMinutes: 330,
+  });
+  // The envelope (location, signal) must not be filed as a reading.
+  assert.ok(packets.every((packet) => Object.keys(packet.values).length === 0));
+});
+
+test('a TIG-6 is granted its four fixed topics and nothing wider', () => {
+  const acl = deviceAcl('54B691182EC8', [], TIG6.topics);
+  assert.deepEqual(acl.publish.sort(), [
+    '54B691182EC8/cmd-res',
+    '54B691182EC8/connection',
+    '54B691182EC8/data',
+  ]);
+  assert.deepEqual(acl.subscribe, ['54B691182EC8/cmd']);
+  assert.ok(!aclAllows(acl.publish, '54B691182EC9/data'));
+});
