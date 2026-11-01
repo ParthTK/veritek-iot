@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
   // A fresh database with no metric catalogue cannot classify a single reading,
   // so the baseline is idempotently applied at boot.
-  await seed();
+  await seed({ examples: env.SIMULATOR_ENABLED });
 
   // The backend authenticates to the broker like any other client, through a
   // service account that is never a gateway's credential (spec section 9).

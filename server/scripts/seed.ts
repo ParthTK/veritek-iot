@@ -24,7 +24,11 @@ const log = createLogger('seed');
  *     packet; a placeholder row is created, disabled and marked unverified, so
  *     the slot is obvious tomorrow.
  */
-export async function seed(): Promise<void> {
+export async function seed(options: { examples?: boolean } = {}): Promise<void> {
+  // The example site, simulated gateway and its meters exist for the simulator
+  // and the verification scripts. A real estate must not get them back on
+  // every restart, so the server asks for them only when the simulator runs.
+  const examples = options.examples ?? true;
   const database = await connectDb();
   await migrate(database);
 
@@ -48,73 +52,78 @@ export async function seed(): Promise<void> {
     }
   }
 
-  /* ------------------------------------------------------------ site -- */
-  const site = await upsertSite({
-    id: 'site-abc',
-    name: 'ABC Manufacturing',
-    code: 'ABC',
-    city: 'Mumbai',
-    state: 'Maharashtra',
-    address: '1 Example Industrial Estate, Unit A, Mumbai 400001',
-    timezone: env.DEFAULT_SITE_TIMEZONE,
-    tariffPerKwh: 8.5,
-    currency: 'INR',
-  });
-
-  /* ---------------------------------------------------- meter model -- */
-  // An empty shell on purpose: the register table is one of the four things we
-  // are still waiting on. `verified: false` keeps that visible in the UI.
-  const model = await upsertMeterModel({
-    manufacturer: 'UNSPECIFIED',
-    model: 'PENDING-REGISTER-TABLE',
-    protocol: 'MODBUS_RTU',
-    defaultBaudRate: null,
-    defaultParity: null,
-    defaultStopBits: null,
-    defaultDataBits: null,
-    defaultSlaveId: null,
-    defaultPollIntervalSeconds: null,
-    verified: false,
-    notes:
-      'Placeholder. Fill in from the energy meter manual: baud rate, parity, stop bits, and one ' +
-      'register-map row per metric (address, datatype, byte/word order, scale, unit). Until then ' +
-      'this model decodes nothing and values arrive only if the gateway pre-decodes them. ' +
-      'See docs/register-map.template.json.',
-  });
-
-  /* --------------------------------------------------- test gateway -- */
-  const gateway = await upsertGateway({
-    gatewayUid: env.SIMULATOR_GATEWAY_UID,
-    name: 'Simulated Gateway (' + env.SIMULATOR_GATEWAY_UID + ')',
-    siteId: site.id,
-    hardwareModel: 'SIMULATOR',
-    connectionType: 'MQTT',
-    topicNamespace: 'veritek/' + env.SIMULATOR_GATEWAY_UID,
-    sourceUtcOffset: env.DEFAULT_SOURCE_UTC_OFFSET,
-    enabled: true,
-    notes:
-      'Test gateway for the simulator. Delete or disable it once the physical gateway is ' +
-      'commissioned; it exists so the whole path can be verified before hardware arrives.',
-  });
-
-  const slaveIds = env.SIMULATOR_SLAVE_IDS.map(Number).filter(Number.isFinite);
-  for (const slaveId of slaveIds.length ? slaveIds : [1]) {
-    await upsertMeter({
-      meterUid: env.SIMULATOR_GATEWAY_UID + ':' + slaveId,
-      meterName: 'Simulated Meter ' + slaveId,
-      siteId: site.id,
-      gatewayId: gateway.id,
-      meterModelId: model.id,
-      slaveId,
-      // Left null on purpose: the real serial settings come from the meter, and
-      // an invented 9600/none/1 here would be a guess dressed up as a fact.
-      baudRate: null,
-      parity: null,
-      stopBits: null,
-      enabled: true,
-      installedAt: new Date().toISOString(),
-      notes: 'Created for the simulator. Set the real serial parameters at commissioning.',
+  let exampleGateway: string | null = null;
+  if (examples) {
+    /* ------------------------------------------------------------ site -- */
+    const site = await upsertSite({
+      id: 'site-abc',
+      name: 'ABC Manufacturing',
+      code: 'ABC',
+      city: 'Mumbai',
+      state: 'Maharashtra',
+      address: '1 Example Industrial Estate, Unit A, Mumbai 400001',
+      timezone: env.DEFAULT_SITE_TIMEZONE,
+      tariffPerKwh: 8.5,
+      currency: 'INR',
     });
+
+    /* ---------------------------------------------------- meter model -- */
+    // An empty shell on purpose: the register table is one of the four things we
+    // are still waiting on. `verified: false` keeps that visible in the UI.
+    const model = await upsertMeterModel({
+      manufacturer: 'UNSPECIFIED',
+      model: 'PENDING-REGISTER-TABLE',
+      protocol: 'MODBUS_RTU',
+      defaultBaudRate: null,
+      defaultParity: null,
+      defaultStopBits: null,
+      defaultDataBits: null,
+      defaultSlaveId: null,
+      defaultPollIntervalSeconds: null,
+      verified: false,
+      notes:
+        'Placeholder. Fill in from the energy meter manual: baud rate, parity, stop bits, and one ' +
+        'register-map row per metric (address, datatype, byte/word order, scale, unit). Until then ' +
+        'this model decodes nothing and values arrive only if the gateway pre-decodes them. ' +
+        'See docs/register-map.template.json.',
+    });
+
+    /* --------------------------------------------------- test gateway -- */
+    const gateway = await upsertGateway({
+      gatewayUid: env.SIMULATOR_GATEWAY_UID,
+      name: 'Simulated Gateway (' + env.SIMULATOR_GATEWAY_UID + ')',
+      siteId: site.id,
+      hardwareModel: 'SIMULATOR',
+      connectionType: 'MQTT',
+      topicNamespace: 'veritek/' + env.SIMULATOR_GATEWAY_UID,
+      sourceUtcOffset: env.DEFAULT_SOURCE_UTC_OFFSET,
+      enabled: true,
+      notes:
+        'Test gateway for the simulator. Delete or disable it once the physical gateway is ' +
+        'commissioned; it exists so the whole path can be verified before hardware arrives.',
+    });
+
+    exampleGateway = gateway.gatewayUid;
+    const slaveIds = env.SIMULATOR_SLAVE_IDS.map(Number).filter(Number.isFinite);
+    for (const slaveId of slaveIds.length ? slaveIds : [1]) {
+      await upsertMeter({
+        meterUid: env.SIMULATOR_GATEWAY_UID + ':' + slaveId,
+        meterName: 'Simulated Meter ' + slaveId,
+        siteId: site.id,
+        gatewayId: gateway.id,
+        meterModelId: model.id,
+        slaveId,
+        // Left null on purpose: the real serial settings come from the meter, and
+        // an invented 9600/none/1 here would be a guess dressed up as a fact.
+        baudRate: null,
+        parity: null,
+        stopBits: null,
+        enabled: true,
+        installedAt: new Date().toISOString(),
+        notes: 'Created for the simulator. Set the real serial parameters at commissioning.',
+      });
+    }
+
   }
 
   /* ------------------------------------------------- payload profiles -- */
@@ -222,9 +231,7 @@ export async function seed(): Promise<void> {
   });
 
   log.info('seed complete', {
-    site: site.id,
-    gateway: gateway.gatewayUid,
-    meters: slaveIds.length || 1,
+    exampleGateway,
     alertRules: rules.length + 2,
   });
 }
