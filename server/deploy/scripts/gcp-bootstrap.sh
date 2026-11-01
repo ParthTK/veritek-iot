@@ -19,11 +19,14 @@
 #   PUBLIC_IP     host public IP         (default: detected from metadata)
 #   BASE_DOMAIN   DNS suffix             (default: <dashed-ip>.sslip.io)
 #   ACME_EMAIL    Let's Encrypt contact  (optional; unset registers without one)
+#   BACKUP_BUCKET Cloud Storage target   (default: gs://veritek-iot-backups)
 
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-veritek}"
 ENVIRONMENT="${ENVIRONMENT:-staging}"
+# Bucket names are global, so another project cannot reuse the default.
+BACKUP_BUCKET="${BACKUP_BUCKET:-gs://veritek-iot-backups}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEPLOY_DIR="$REPO_DIR/deploy"
 ENV_FILE="$DEPLOY_DIR/env/$ENVIRONMENT.env"
@@ -129,7 +132,7 @@ AUTO_PROVISION_GATEWAYS=$([ "$ENVIRONMENT" = "staging" ] && echo true || echo fa
 AUTO_PROVISION_METERS=$([ "$ENVIRONMENT" = "staging" ] && echo true || echo false)
 
 GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
-BACKUP_BUCKET=gs://veritek-iot-backups
+BACKUP_BUCKET=$BACKUP_BUCKET
 BACKUP_RETENTION_DAYS=30
 ENVEOF
 umask 022
