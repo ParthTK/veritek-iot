@@ -339,9 +339,11 @@ log "timers installed: $(systemctl list-timers --no-pager 'veritek-*' 2>/dev/nul
 log "building the dashboard"
 FRONTEND_DIR="$(dirname "$REPO_DIR")"
 if [ -f "$FRONTEND_DIR/package.json" ]; then
+  # Live data only: this is a real estate, so the bundled demo devices stay out.
   if docker run --rm \
       -v "$FRONTEND_DIR:/app" -w /app \
       -e npm_config_cache=/tmp/.npm \
+      -e VITE_DATA_MODE="${VITE_DATA_MODE:-live}" \
       node:22-alpine sh -c "npm ci --no-audit --no-fund && npm run build"
   then
     # Clear the directory's CONTENTS, never the directory itself. nginx bind
